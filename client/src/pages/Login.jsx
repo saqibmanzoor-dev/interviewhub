@@ -117,89 +117,6 @@ export default function Login() {
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-xl px-4 relative z-10">
         <div className="glass-panel rounded-2xl p-6 sm:p-8 shadow-2xl border border-slate-800">
           
-          {/* Quick Demo Login Personas Section */}
-          <div className="mb-6 p-4 rounded-xl bg-slate-900/80 border border-slate-800">
-            <div className="flex items-center gap-2 mb-3">
-              <Sparkles className="w-4 h-4 text-amber-400" />
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-300">
-                1-Click Instant Demo Login
-              </span>
-            </div>
-            <p className="text-xs text-slate-400 mb-3">
-              Explore InterviewHub immediately with seeded data across four key stakeholder roles:
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => handleDemoSignIn('candidate')}
-                disabled={isLoading}
-                className="flex items-center gap-2 p-2.5 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-left transition-all group"
-              >
-                <div className="w-7 h-7 rounded-md bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold text-xs shrink-0">
-                  SC
-                </div>
-                <div className="min-w-0">
-                  <div className="text-xs font-semibold text-slate-200 group-hover:text-emerald-400 truncate">Candidate</div>
-                  <div className="text-[10px] text-slate-400 truncate">Sarah Chen</div>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleDemoSignIn('interviewer')}
-                disabled={isLoading}
-                className="flex items-center gap-2 p-2.5 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-left transition-all group"
-              >
-                <div className="w-7 h-7 rounded-md bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-xs shrink-0">
-                  AM
-                </div>
-                <div className="min-w-0">
-                  <div className="text-xs font-semibold text-slate-200 group-hover:text-emerald-400 truncate">Interviewer</div>
-                  <div className="text-[10px] text-slate-400 truncate">Alex Morgan</div>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleDemoSignIn('recruiter')}
-                disabled={isLoading}
-                className="flex items-center gap-2 p-2.5 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-left transition-all group"
-              >
-                <div className="w-7 h-7 rounded-md bg-blue-500/20 text-blue-400 flex items-center justify-center font-bold text-xs shrink-0">
-                  DM
-                </div>
-                <div className="min-w-0">
-                  <div className="text-xs font-semibold text-slate-200 group-hover:text-emerald-400 truncate">Recruiter</div>
-                  <div className="text-[10px] text-slate-400 truncate">David Miller</div>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleDemoSignIn('admin')}
-                disabled={isLoading}
-                className="flex items-center gap-2 p-2.5 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-left transition-all group"
-              >
-                <div className="w-7 h-7 rounded-md bg-purple-500/20 text-purple-400 flex items-center justify-center font-bold text-xs shrink-0">
-                  EV
-                </div>
-                <div className="min-w-0">
-                  <div className="text-xs font-semibold text-slate-200 group-hover:text-emerald-400 truncate">Admin</div>
-                  <div className="text-[10px] text-slate-400 truncate">Elena Vance</div>
-                </div>
-              </button>
-            </div>
-          </div>
-
-          <div className="relative my-6">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-slate-800" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase tracking-wider">
-              <span className="bg-[#111827] px-3 text-slate-500 font-medium">Or continue with credentials</span>
-            </div>
-          </div>
-
           {/* Error Alert */}
           {(localError || error) && (
             <div className="mb-4 p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 flex items-center gap-2.5 text-rose-300 text-xs">
@@ -208,7 +125,7 @@ export default function Login() {
             </div>
           )}
 
-          {/* Standard Form */}
+          {/* Standard Login Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-xs font-medium text-slate-300 mb-1.5">Email address</label>
@@ -220,17 +137,14 @@ export default function Login() {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="alex.chen@example.com"
+                  placeholder="name@example.com"
                   className="block w-full pl-10 pr-3 py-2 bg-slate-900 border border-slate-700/80 rounded-lg text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors"
                 />
               </div>
             </div>
 
             <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-xs font-medium text-slate-300">Password</label>
-                <span className="text-[11px] text-slate-500">Demo: Password123!</span>
-              </div>
+              <label className="block text-xs font-medium text-slate-300 mb-1.5">Password</label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
                   <Lock className="w-4 h-4" />
@@ -239,7 +153,7 @@ export default function Login() {
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••••••"
+                  placeholder="Enter your password"
                   className="block w-full pl-10 pr-3 py-2 bg-slate-900 border border-slate-700/80 rounded-lg text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors"
                 />
               </div>
@@ -364,7 +278,7 @@ export default function Login() {
                     required
                     value={googleEmail}
                     onChange={(e) => setGoogleEmail(e.target.value)}
-                    placeholder="e.g. yourname@gmail.com"
+                    placeholder="your.email@gmail.com"
                     className="block w-full pl-10 pr-3 py-2 bg-slate-900 border border-slate-700/80 rounded-lg text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                   />
                 </div>
@@ -382,7 +296,7 @@ export default function Login() {
                     type="text"
                     value={googleName}
                     onChange={(e) => setGoogleName(e.target.value)}
-                    placeholder="e.g. Saqib"
+                    placeholder="Your full name"
                     className="block w-full pl-10 pr-3 py-2 bg-slate-900 border border-slate-700/80 rounded-lg text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                   />
                 </div>

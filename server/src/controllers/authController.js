@@ -28,8 +28,8 @@ export async function register(req, res, next) {
       email: email.toLowerCase(),
       passwordHash,
       role: assignedRole,
-      title: title || (assignedRole === 'interviewer' ? 'Senior Technical Interviewer' : 'Software Engineer Candidate'),
-      avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(name)}`,
+      title: title || '',
+      avatar: req.body.avatar || '',
       emailVerified: true
     });
 
@@ -162,7 +162,7 @@ export async function getMe(req, res, next) {
 // Real Google OAuth 2.0 Flow & Direct Google Account Sign-In
 export async function googleAuth(req, res, next) {
   try {
-    const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+    const clientUrl = process.env.CLIENT_URL || req.headers.origin || `${req.protocol}://${req.hostname}:5173`;
     const emailParam = req.query.email || req.body?.email;
     const nameParam = req.query.name || req.body?.name;
     const roleParam = req.query.role || req.body?.role;
@@ -187,12 +187,11 @@ export async function googleAuth(req, res, next) {
         user = await User.create({
           name,
           email,
-          passwordHash: '$2a$10$wT0lV3zD.d1234567890OepJ9eP950yT/Q39e3g8n8uQ78/S.',
           role,
-          title: role === 'candidate' ? 'Software Engineer' : role === 'interviewer' ? 'Senior Technical Lead' : role === 'recruiter' ? 'Technical Recruiter' : 'Platform Administrator',
-          avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(name)}`,
+          title: req.body?.title || req.query?.title || '',
+          avatar: req.body?.avatar || req.query?.avatar || '',
           emailVerified: true,
-          authProviders: [{ provider: 'google', providerUserId: `google_${Date.now()}` }]
+          authProviders: [{ provider: 'google', providerUserId: email }]
         });
       }
 
@@ -220,17 +219,17 @@ export async function googleAuth(req, res, next) {
     }
 
     const clientId = process.env.GOOGLE_CLIENT_ID?.trim();
-    const callbackUrl = process.env.GOOGLE_CALLBACK_URL || 'http://localhost:5000/api/v1/auth/google/callback';
+    const callbackUrl = process.env.GOOGLE_CALLBACK_URL || `${req.protocol}://${req.get('host')}/api/v1/auth/google/callback`;
 
-    // Verify real Google OAuth Client ID is provided
-    if (!clientId || clientId === 'your_google_client_id_here') {
+    // Verify Google OAuth Client ID is provided
+    if (!clientId) {
       if (req.method === 'POST') {
         return res.status(400).json({
           success: false,
-          message: 'Google Cloud OAuth is not configured. Please provide your Google email & name or set GOOGLE_CLIENT_ID in server/.env.'
+          message: 'Google Cloud OAuth credentials not configured in server/.env.'
         });
       }
-      return res.redirect(`${clientUrl}/auth/callback?error=${encodeURIComponent('Google OAuth credentials not configured in Google Cloud Console. You can sign in directly by entering your Google email address in the Google Sign-In prompt.')}`);
+      return res.redirect(`${clientUrl}/auth/callback?error=${encodeURIComponent('Google OAuth credentials not configured in Google Cloud Console. Enter your Google email address directly to sign in.')}`);
     }
 
     // Direct redirect to genuine Google accounts OAuth 2.0 consent screen
@@ -243,7 +242,7 @@ export async function googleAuth(req, res, next) {
 
 // Google OAuth 2.0 Callback Handler
 export async function googleCallback(req, res, next) {
-  const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+  const clientUrl = process.env.CLIENT_URL || req.headers.origin || `${req.protocol}://${req.hostname}:5173`;
   try {
     const { code, error } = req.query;
 
@@ -252,15 +251,15 @@ export async function googleCallback(req, res, next) {
     }
 
     if (!code) {
-      return res.redirect(`${clientUrl}/auth/callback?error=No+authorization+code+received+from+Google`);
+      return res.redirect(`${clientUrl}/auth/callback?error=${encodeURIComponent('No authorization code received from Google')}`);
     }
 
     const clientId = process.env.GOOGLE_CLIENT_ID?.trim();
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
-    const redirectUri = process.env.GOOGLE_CALLBACK_URL || 'http://localhost:5000/api/v1/auth/google/callback';
+    const redirectUri = process.env.GOOGLE_CALLBACK_URL || `${req.protocol}://${req.get('host')}/api/v1/auth/google/callback`;
 
     if (!clientId || !clientSecret) {
-      return res.redirect(`${clientUrl}/auth/callback?error=Missing+GOOGLE_CLIENT_ID+or+GOOGLE_CLIENT_SECRET+in+server/.env`);
+      return res.redirect(`${clientUrl}/auth/callback?error=${encodeURIComponent('Missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET in server/.env')}`);
     }
 
     // Exchange auth code for access token with Google
@@ -289,7 +288,7 @@ export async function googleCallback(req, res, next) {
     const profile = await profileResponse.json();
 
     if (!profile.email) {
-      return res.redirect(`${clientUrl}/auth/callback?error=Unable+to+retrieve+verified+email+from+Google+account`);
+      return res.redirect(`${clientUrl}/auth/callback?error=${encodeURIComponent('Unable to retrieve verified email from Google account')}`);
     }
 
     // Find existing user or register new user using real Google credentials
@@ -298,11 +297,10 @@ export async function googleCallback(req, res, next) {
       user = await User.create({
         name: profile.name || profile.email.split('@')[0],
         email: profile.email.toLowerCase(),
-        passwordHash: '$2a$10$wT0lV3zD.d1234567890OepJ9eP950yT/Q39e3g8n8uQ78/S.',
-        role: 'candidate',
-        title: 'Software Engineer',
-        avatar: profile.picture || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(profile.name || profile.email)}`,
-        emailVerified: true,
+        role: req.query?.role || 'candidate',
+        title: '',
+        avatar: profile.picture || '',
+        emailVerified: Boolean(profile.email_verified),
         authProviders: [{ provider: 'google', providerUserId: profile.sub }]
       });
     }

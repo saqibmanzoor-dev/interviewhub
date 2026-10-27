@@ -12,7 +12,7 @@ export default function Register() {
     email: '',
     password: '',
     role: 'candidate',
-    organizationName: 'TechCorp Engineering'
+    organizationName: ''
   });
   const [localError, setLocalError] = useState(null);
 
@@ -73,7 +73,7 @@ export default function Register() {
                   name="name"
                   value={formData.name}
                   onChange={handleChange}
-                  placeholder="e.g. Maya Lin"
+                  placeholder="Full name"
                   className="block w-full pl-10 pr-3 py-2 bg-slate-900 border border-slate-700/80 rounded-lg text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors"
                 />
               </div>
@@ -90,7 +90,7 @@ export default function Register() {
                   name="email"
                   value={formData.email}
                   onChange={handleChange}
-                  placeholder="maya@example.com"
+                  placeholder="name@example.com"
                   className="block w-full pl-10 pr-3 py-2 bg-slate-900 border border-slate-700/80 rounded-lg text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors"
                 />
               </div>
