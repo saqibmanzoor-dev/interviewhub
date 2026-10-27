@@ -144,13 +144,13 @@ export default function Navbar() {
                 onMouseLeave={() => setShowRoleMenu(false)}
               >
                 <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-800">
-                  Switch Demo Account
+                  Switch Workspace Role
                 </div>
                 {[
-                  { role: 'candidate', name: 'Sarah Chen (Candidate)' },
-                  { role: 'interviewer', name: 'Alex Morgan (Interviewer)' },
-                  { role: 'recruiter', name: 'David Miller (Recruiter)' },
-                  { role: 'admin', name: 'Elena Vance (Admin)' }
+                  { role: 'admin', name: 'Admin (Host / Creator)' },
+                  { role: 'interviewer', name: 'Interviewer (Host)' },
+                  { role: 'recruiter', name: 'Recruiter' },
+                  { role: 'candidate', name: 'Candidate' }
                 ].map((p) => (
                   <button
                     key={p.role}
@@ -190,12 +190,12 @@ export default function Navbar() {
                 <div className="mt-2 space-y-2">
                   <div className="p-2 rounded bg-slate-800/60 border border-slate-700/50">
                     <div className="font-medium text-slate-200">Technical Interview Scheduled</div>
-                    <div className="text-[11px] text-slate-400 mt-0.5">Frontend Engineer interview with Sarah Chen tomorrow at 2:00 PM.</div>
+                    <div className="text-[11px] text-slate-400 mt-0.5">Frontend Engineer interview scheduled for tomorrow at 2:00 PM.</div>
                     <div className="text-[10px] text-slate-500 mt-1">10 mins ago</div>
                   </div>
                   <div className="p-2 rounded bg-slate-800/30 border border-slate-800">
                     <div className="font-medium text-slate-300">Evaluation Submitted</div>
-                    <div className="text-[11px] text-slate-400 mt-0.5">Interviewer Alex Morgan submitted score card for Backend Lead.</div>
+                    <div className="text-[11px] text-slate-400 mt-0.5">Interviewer scorecard submitted for Backend Lead round.</div>
                     <div className="text-[10px] text-slate-500 mt-1">1 hour ago</div>
                   </div>
                 </div>

@@ -267,13 +267,13 @@ export default function Interviews() {
                       </td>
 
                       <td className="px-5 py-4">
-                        <div className="font-medium text-slate-200">{item.candidateId?.name || 'Sarah Chen'}</div>
-                        <div className="text-[11px] text-slate-400">{item.candidateId?.email || 'sarah@candidate.com'}</div>
+                        <div className="font-medium text-slate-200">{item.candidateId?.name || 'Technical Candidate'}</div>
+                        <div className="text-[11px] text-slate-400">{item.candidateId?.email || 'candidate@interviewhub.io'}</div>
                       </td>
 
                       <td className="px-5 py-4">
-                        <div className="font-medium text-slate-200">{item.interviewerIds?.[0]?.name || item.interviewerId?.name || 'Alex Morgan'}</div>
-                        <div className="text-[11px] text-slate-400">{item.interviewerIds?.[0]?.email || item.interviewerId?.email || 'interviewer@interviewhub.io'}</div>
+                        <div className="font-medium text-slate-200">{item.interviewerIds?.[0]?.name || item.interviewerId?.name || item.createdBy?.name || 'Lead Interviewer'}</div>
+                        <div className="text-[11px] text-slate-400">{item.interviewerIds?.[0]?.email || item.interviewerId?.email || item.createdBy?.email || 'interviewer@interviewhub.io'}</div>
                       </td>
 
                       <td className="px-5 py-4">

@@ -85,6 +85,16 @@ export default function InterviewRoom() {
   const [evalSubmitting, setEvalSubmitting] = useState(false);
   const [evalSuccess, setEvalSuccess] = useState(false);
 
+  // Dynamic host & participant resolution based on authenticated user
+  const isHost = user?.role === 'admin' || user?.role === 'interviewer' || user?.role === 'recruiter' || interview?.createdBy === user?._id || interview?.createdBy?._id === user?._id;
+  const currentUserName = user?.name || (isHost ? 'Host' : 'Candidate');
+  const currentUserRoleLabel = isHost ? (user?.role === 'admin' ? 'Admin (Host)' : 'Lead Interviewer') : 'Technical Candidate';
+
+  const remoteParticipantName = isHost 
+    ? (interview?.candidateId?.name || 'Technical Candidate') 
+    : (interview?.interviewerIds?.[0]?.name || interview?.createdBy?.name || 'Lead Interviewer');
+  const remoteParticipantRoleLabel = isHost ? 'Candidate' : 'Interviewer (Host)';
+
   // References
   const localVideoRef = useRef(null);
   const localStreamRef = useRef(null);
@@ -241,10 +251,17 @@ export default function InterviewRoom() {
           setCode(data.interview.challengeId.starterCode.javascript);
         }
       }
-      // Populate mock participants
+      // Populate dynamic participants
+      const hostUserName = (user?.role === 'admin' || user?.role === 'interviewer' || user?.role === 'recruiter')
+        ? (user?.name || 'Lead Interviewer')
+        : (data.interview?.interviewerIds?.[0]?.name || data.interview?.createdBy?.name || 'Lead Interviewer');
+      const candUserName = (user?.role === 'candidate')
+        ? (user?.name || 'Technical Candidate')
+        : (data.interview?.candidateId?.name || 'Technical Candidate');
+
       setParticipants([
-        { id: '1', name: data.interview?.interviewerId?.name || 'Alex Morgan', role: 'interviewer', mic: true, video: true },
-        { id: '2', name: data.interview?.candidateId?.name || user?.name || 'Sarah Chen', role: 'candidate', mic: isMicOn, video: isCameraOn }
+        { id: '1', name: hostUserName, role: 'interviewer', mic: true, video: true },
+        { id: '2', name: candUserName, role: 'candidate', mic: isMicOn, video: isCameraOn }
       ]);
     } catch (err) {
       console.warn('Could not load interview record, using simulated session:', err);
@@ -265,8 +282,8 @@ export default function InterviewRoom() {
         ]
       });
       setParticipants([
-        { id: '1', name: 'Alex Morgan', role: 'interviewer', mic: true, video: true },
-        { id: '2', name: user?.name || 'Sarah Chen', role: user?.role || 'candidate', mic: isMicOn, video: isCameraOn }
+        { id: '1', name: user?.role !== 'candidate' ? (user?.name || 'Host') : 'Lead Interviewer', role: 'interviewer', mic: true, video: true },
+        { id: '2', name: user?.role === 'candidate' ? (user?.name || 'Candidate') : 'Technical Candidate', role: 'candidate', mic: isMicOn, video: isCameraOn }
       ]);
     } finally {
       setIsLoading(false);
@@ -528,76 +545,37 @@ export default function InterviewRoom() {
               layoutMode === 'video' ? 'w-full h-full' : 'w-full md:w-[38%] h-64 md:h-full shrink-0'
             }`}>
               
-              {/* Tile 1: Interviewer Video Tile */}
+              {/* Tile 1: YOUR Live Video Tile */}
               <div className="flex-1 rounded-2xl bg-slate-900 border border-slate-800 relative overflow-hidden flex flex-col items-center justify-center shadow-lg group">
-                {/* Active speaker emerald glowing ring */}
-                {activeSpeaker === 'interviewer' && (
-                  <div className="absolute inset-0 border-2 border-emerald-500/80 rounded-2xl pointer-events-none shadow-[inset_0_0_15px_rgba(16,185,129,0.3)] animate-pulse" />
-                )}
-
-                {/* Simulated high-fidelity avatar video representation */}
-                <div className="flex flex-col items-center justify-center">
-                  <div className="relative">
-                    <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-emerald-600 via-teal-600 to-cyan-500 flex items-center justify-center text-white font-bold text-2xl shadow-xl shadow-emerald-500/20 ring-4 ring-slate-800">
-                      AM
-                    </div>
-                    {/* Audio wave indicator animation */}
-                    <div className="absolute -bottom-1 -right-1 p-1 rounded-full bg-emerald-500 text-slate-950">
-                      <Mic className="w-3.5 h-3.5" />
-                    </div>
-                  </div>
-                  <div className="mt-2.5 text-center">
-                    <span className="text-xs font-semibold text-white">Alex Morgan</span>
-                    <span className="block text-[10px] text-emerald-400">Senior Staff Engineer (Interviewer)</span>
-                  </div>
-                </div>
-
-                {/* Video Tile Name & Audio Badge */}
-                <div className="absolute bottom-2.5 left-2.5 px-2 py-1 rounded-lg bg-black/60 backdrop-blur-md text-[11px] font-medium text-slate-200 flex items-center gap-1.5 border border-white/10">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                  <span>Alex Morgan (Speaking)</span>
-                </div>
-              </div>
-
-              {/* Tile 2: Candidate Video Tile */}
-              <div className="flex-1 rounded-2xl bg-slate-900 border border-slate-800 relative overflow-hidden flex flex-col items-center justify-center shadow-lg group">
-                {activeSpeaker === 'candidate' && (
+                {activeSpeaker === 'self' && (
                   <div className="absolute inset-0 border-2 border-emerald-500/80 rounded-2xl pointer-events-none shadow-[inset_0_0_15px_rgba(16,185,129,0.3)] animate-pulse" />
                 )}
 
                 {isCameraOn ? (
-                  <div className="w-full h-full relative flex items-center justify-center">
-                    <video
-                      ref={localVideoRef}
-                      autoPlay
-                      playsInline
-                      muted
-                      className="w-full h-full object-cover rounded-2xl"
-                    />
-                    {/* Fallback avatar if physical webcam is disabled/empty */}
-                    <div className="absolute flex flex-col items-center justify-center pointer-events-none">
-                      <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-cyan-600 to-blue-500 flex items-center justify-center text-white font-bold text-2xl shadow-xl ring-4 ring-slate-800">
-                        {user?.name ? user.name.slice(0, 2).toUpperCase() : 'SC'}
-                      </div>
-                      <div className="mt-2.5 text-center">
-                        <span className="text-xs font-semibold text-white">{user?.name || 'Sarah Chen'}</span>
-                        <span className="block text-[10px] text-slate-400">Candidate (Camera Live)</span>
-                      </div>
-                    </div>
-                  </div>
+                  <video
+                    ref={localVideoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover rounded-2xl"
+                  />
                 ) : (
                   <div className="flex flex-col items-center justify-center">
-                    <div className="w-20 h-20 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center text-xl font-bold ring-4 ring-slate-800">
-                      {user?.name ? user.name.slice(0, 2).toUpperCase() : 'SC'}
+                    <div className="w-20 h-20 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center text-xl font-bold ring-4 ring-slate-700/60 shadow-xl">
+                      {currentUserName.slice(0, 2).toUpperCase()}
                     </div>
-                    <div className="mt-2 text-xs text-slate-400">Camera Off</div>
+                    <div className="mt-2.5 text-center">
+                      <span className="text-xs font-semibold text-white">{currentUserName}</span>
+                      <span className="block text-[10px] text-slate-400">Camera Off</span>
+                    </div>
                   </div>
                 )}
 
-                {/* Candidate Tile Bottom Bar */}
+                {/* Bottom Bar: You */}
                 <div className="absolute bottom-2.5 left-2.5 px-2 py-1 rounded-lg bg-black/60 backdrop-blur-md text-[11px] font-medium text-slate-200 flex items-center gap-1.5 border border-white/10">
                   {isMicOn ? <Mic className="w-3.5 h-3.5 text-emerald-400" /> : <MicOff className="w-3.5 h-3.5 text-rose-400" />}
-                  <span>{user?.name || 'Sarah Chen'} (You)</span>
+                  <span>{currentUserName} (You)</span>
+                  <span className="text-[10px] text-emerald-400 ml-1">[{currentUserRoleLabel}]</span>
                 </div>
 
                 {isScreenSharing && (
@@ -606,6 +584,31 @@ export default function InterviewRoom() {
                     <span>Sharing Screen</span>
                   </div>
                 )}
+              </div>
+
+              {/* Tile 2: Remote Peer Video Tile */}
+              <div className="flex-1 rounded-2xl bg-slate-900 border border-slate-800 relative overflow-hidden flex flex-col items-center justify-center shadow-lg group">
+                <div className="flex flex-col items-center justify-center">
+                  <div className="relative">
+                    <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-cyan-600 via-blue-600 to-indigo-500 flex items-center justify-center text-white font-bold text-2xl shadow-xl shadow-cyan-500/20 ring-4 ring-slate-800">
+                      {remoteParticipantName.slice(0, 2).toUpperCase()}
+                    </div>
+                    <div className="absolute -bottom-1 -right-1 p-1 rounded-full bg-emerald-500 text-slate-950">
+                      <Mic className="w-3.5 h-3.5" />
+                    </div>
+                  </div>
+                  <div className="mt-2.5 text-center">
+                    <span className="text-xs font-semibold text-white">{remoteParticipantName}</span>
+                    <span className="block text-[10px] text-slate-400">{remoteParticipantRoleLabel}</span>
+                  </div>
+                </div>
+
+                {/* Remote Participant Bottom Bar */}
+                <div className="absolute bottom-2.5 left-2.5 px-2 py-1 rounded-lg bg-black/60 backdrop-blur-md text-[11px] font-medium text-slate-200 flex items-center gap-1.5 border border-white/10">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                  <span>{remoteParticipantName}</span>
+                  <span className="text-[10px] text-slate-400 ml-1">[{remoteParticipantRoleLabel}]</span>
+                </div>
               </div>
 
             </div>
