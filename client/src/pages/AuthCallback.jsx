@@ -6,29 +6,66 @@ import { AlertCircle, Key, ExternalLink, ArrowLeft } from 'lucide-react';
 export default function AuthCallback() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { initAuth } = useAuthStore();
+  const { initAuth, googleLogin } = useAuthStore();
   const [errorMsg, setErrorMsg] = useState(null);
 
   useEffect(() => {
-    const token = searchParams.get('token');
-    const error = searchParams.get('error');
+    async function handleAuth() {
+      // 1. Check query parameters
+      const token = searchParams.get('token');
+      const error = searchParams.get('error');
 
-    if (error) {
-      setErrorMsg(decodeURIComponent(error));
-      return;
-    }
+      if (error) {
+        setErrorMsg(decodeURIComponent(error));
+        return;
+      }
 
-    if (token) {
-      localStorage.setItem('interviewhub_token', token);
-      initAuth().then(() => {
+      if (token) {
+        localStorage.setItem('interviewhub_token', token);
+        await initAuth();
         navigate('/dashboard', { replace: true });
-      }).catch(() => {
-        navigate('/dashboard', { replace: true });
-      });
-    } else {
+        return;
+      }
+
+      // 2. Check hash parameters (OAuth 2.0 client implicit flow: #access_token=...)
+      if (window.location.hash) {
+        const hashParams = new URLSearchParams(window.location.hash.substring(1));
+        const accessToken = hashParams.get('access_token');
+        const hashError = hashParams.get('error');
+
+        if (hashError) {
+          setErrorMsg(decodeURIComponent(hashError));
+          return;
+        }
+
+        if (accessToken) {
+          try {
+            // Fetch verified user info directly from Google API
+            const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+              headers: { Authorization: `Bearer ${accessToken}` }
+            });
+            const profile = await res.json();
+            if (profile.email) {
+              await googleLogin({
+                email: profile.email,
+                name: profile.name || profile.email.split('@')[0],
+                role: 'admin',
+                credential: accessToken
+              });
+              navigate('/dashboard', { replace: true });
+              return;
+            }
+          } catch (e) {
+            console.warn('Google userinfo fetch failed:', e);
+          }
+        }
+      }
+
       setErrorMsg('No authentication token received from Google OAuth.');
     }
-  }, [searchParams, navigate, initAuth]);
+
+    handleAuth();
+  }, [searchParams, navigate, initAuth, googleLogin]);
 
   if (errorMsg) {
     const isUnconfigured = errorMsg.includes('not configured') || errorMsg.includes('GOOGLE_CLIENT_ID');
@@ -54,16 +91,16 @@ export default function AuthCallback() {
               </div>
               <ol className="list-decimal list-inside space-y-1.5 text-slate-400 text-[11px] leading-relaxed">
                 <li>Go to <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer" className="text-emerald-400 hover:underline">Google Cloud Console ➔ Credentials</a>.</li>
-                <li>Create an <strong>OAuth 2.0 Client ID</strong> (Application type: <em>Web application</em>).</li>
-                <li>Set <strong>Authorized redirect URIs</strong> to:
+                <li>Edit your <strong>OAuth 2.0 Client ID</strong> (Web application).</li>
+                <li>Add your Vercel URL to <strong>Authorized JavaScript origins</strong>:
                   <div className="font-mono text-emerald-300 bg-slate-900 px-2 py-1 rounded border border-slate-700/80 mt-1 select-all">
-                    http://localhost:5000/api/v1/auth/google/callback
+                    {window.location.origin}
                   </div>
                 </li>
-                <li>Add your credentials into <code className="text-slate-200">server/.env</code>:
-                  <pre className="font-mono text-[10px] bg-slate-900 p-2 rounded border border-slate-800 text-slate-300 mt-1">
-GOOGLE_CLIENT_ID=your_client_id.apps.googleusercontent.com&#10;GOOGLE_CLIENT_SECRET=GOCSPX-your_client_secret
-                  </pre>
+                <li>Add to <strong>Authorized redirect URIs</strong>:
+                  <div className="font-mono text-emerald-300 bg-slate-900 px-2 py-1 rounded border border-slate-700/80 mt-1 select-all">
+                    {window.location.origin}/auth/callback
+                  </div>
                 </li>
               </ol>
             </div>
