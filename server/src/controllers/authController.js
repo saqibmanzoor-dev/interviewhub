@@ -159,46 +159,27 @@ export async function getMe(req, res, next) {
   }
 }
 
-// Google OAuth Entry & Flow Handler
+// Real Google OAuth 2.0 Flow Handler
 export async function googleAuth(req, res, next) {
   try {
-    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const clientId = process.env.GOOGLE_CLIENT_ID?.trim();
     const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
     const callbackUrl = process.env.GOOGLE_CALLBACK_URL || 'http://localhost:5000/api/v1/auth/google/callback';
 
-    // If real Google Client ID is configured and user didn't request simulated mode
-    if (clientId && clientId !== 'your_google_client_id_here' && req.query.simulate !== 'true') {
-      const googleUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(callbackUrl)}&response_type=code&scope=openid%20profile%20email&access_type=offline&prompt=select_account`;
-      return res.redirect(googleUrl);
+    // Verify real Google OAuth Client ID is provided
+    if (!clientId || clientId === 'your_google_client_id_here') {
+      return res.redirect(`${clientUrl}/auth/callback?error=${encodeURIComponent('Google OAuth credentials not configured. Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in server/.env with your Google Cloud Console credentials.')}`);
     }
 
-    // Developer / Seeded simulated Google account authentication
-    const mockEmail = req.query.email || 'alex.chen.google@gmail.com';
-    const mockName = req.query.name || 'Alex Chen (Google)';
-    const mockGoogleId = 'google_sub_' + Math.abs(mockEmail.split('').reduce((a, b) => ((a << 5) - a) + b.charCodeAt(0), 0));
-
-    let user = await User.findOne({ email: mockEmail.toLowerCase() });
-    if (!user) {
-      user = await User.create({
-        name: mockName,
-        email: mockEmail.toLowerCase(),
-        passwordHash: '$2a$10$wT0lV3zD.d1234567890OepJ9eP950yT/Q39e3g8n8uQ78/S.',
-        role: 'candidate',
-        title: 'Software Engineer (Google OAuth)',
-        avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(mockName)}`,
-        emailVerified: true,
-        authProviders: [{ provider: 'google', providerUserId: mockGoogleId }]
-      });
-    }
-
-    const token = generateAccessToken(user);
-    res.redirect(`${clientUrl}/auth/callback?token=${token}&role=${user.role}&name=${encodeURIComponent(user.name)}`);
+    // Direct redirect to genuine Google accounts OAuth 2.0 consent screen
+    const googleUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(callbackUrl)}&response_type=code&scope=openid%20profile%20email&access_type=offline&prompt=select_account`;
+    return res.redirect(googleUrl);
   } catch (err) {
     next(err);
   }
 }
 
-// Google OAuth Callback Handler
+// Google OAuth 2.0 Callback Handler
 export async function googleCallback(req, res, next) {
   const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
   try {
@@ -212,11 +193,15 @@ export async function googleCallback(req, res, next) {
       return res.redirect(`${clientUrl}/auth/callback?error=No+authorization+code+received+from+Google`);
     }
 
-    const clientId = process.env.GOOGLE_CLIENT_ID;
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+    const clientId = process.env.GOOGLE_CLIENT_ID?.trim();
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
     const redirectUri = process.env.GOOGLE_CALLBACK_URL || 'http://localhost:5000/api/v1/auth/google/callback';
 
-    // Exchange auth code for tokens
+    if (!clientId || !clientSecret) {
+      return res.redirect(`${clientUrl}/auth/callback?error=Missing+GOOGLE_CLIENT_ID+or+GOOGLE_CLIENT_SECRET+in+server/.env`);
+    }
+
+    // Exchange auth code for access token with Google
     const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -232,19 +217,20 @@ export async function googleCallback(req, res, next) {
     const tokenData = await tokenResponse.json();
     if (!tokenResponse.ok) {
       console.error('Google OAuth token exchange error:', tokenData);
-      return res.redirect(`${clientUrl}/auth/callback?error=${encodeURIComponent(tokenData.error_description || 'Token exchange failed')}`);
+      return res.redirect(`${clientUrl}/auth/callback?error=${encodeURIComponent(tokenData.error_description || tokenData.error || 'Google token exchange failed')}`);
     }
 
-    // Fetch Google profile
+    // Fetch verified profile from Google UserInfo API
     const profileResponse = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
       headers: { Authorization: `Bearer ${tokenData.access_token}` }
     });
     const profile = await profileResponse.json();
 
     if (!profile.email) {
-      return res.redirect(`${clientUrl}/auth/callback?error=Unable+to+retrieve+email+address+from+Google`);
+      return res.redirect(`${clientUrl}/auth/callback?error=Unable+to+retrieve+verified+email+from+Google+account`);
     }
 
+    // Find existing user or register new user using real Google credentials
     let user = await User.findOne({ email: profile.email.toLowerCase() });
     if (!user) {
       user = await User.create({
@@ -252,7 +238,7 @@ export async function googleCallback(req, res, next) {
         email: profile.email.toLowerCase(),
         passwordHash: '$2a$10$wT0lV3zD.d1234567890OepJ9eP950yT/Q39e3g8n8uQ78/S.',
         role: 'candidate',
-        title: 'Software Engineer Candidate',
+        title: 'Software Engineer',
         avatar: profile.picture || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(profile.name || profile.email)}`,
         emailVerified: true,
         authProviders: [{ provider: 'google', providerUserId: profile.sub }]

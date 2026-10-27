@@ -38,16 +38,19 @@ export function setupInterviewSockets(io) {
 
         roomMap.set(socket.id, participantInfo);
 
-        // Fetch interview details for initial code & challenge state
-        const interview = await Interview.findById(interviewId)
+        // Fetch interview details for initial code & challenge state (support ObjectId and meetingCode slug)
+        const isObjectId = typeof interviewId === 'string' && interviewId.match(/^[0-9a-fA-F]{24}$/);
+        const query = isObjectId ? { _id: interviewId } : { meetingCode: interviewId };
+
+        const interview = await Interview.findOne(query)
           .populate('challengeId')
           .lean();
 
         // Fetch recent chat history
-        const recentChats = await ChatMessage.find({ interviewId })
-          .sort({ createdAt: -1 })
-          .limit(50)
-          .lean();
+        const chatQuery = interview ? { interviewId: interview._id } : (isObjectId ? { interviewId } : null);
+        const recentChats = chatQuery 
+          ? await ChatMessage.find(chatQuery).sort({ createdAt: -1 }).limit(50).lean()
+          : [];
 
         // Emit current room state to joining participant
         const participants = Array.from(roomMap.values());
@@ -121,7 +124,9 @@ export function setupInterviewSockets(io) {
       // Debounced or direct persistence to DB
       if (code) {
         try {
-          await Interview.findByIdAndUpdate(currentInterviewId, {
+          const isObjectId = typeof currentInterviewId === 'string' && currentInterviewId.match(/^[0-9a-fA-F]{24}$/);
+          const q = isObjectId ? { _id: currentInterviewId } : { meetingCode: currentInterviewId };
+          await Interview.findOneAndUpdate(q, {
             activeCode: code,
             ...(language ? { activeLanguage: language } : {})
           });
@@ -144,16 +149,20 @@ export function setupInterviewSockets(io) {
     socket.on('editor:set-challenge', async ({ challengeId }) => {
       if (!currentInterviewId) return;
       try {
-        const interview = await Interview.findByIdAndUpdate(
-          currentInterviewId,
+        const isObjectId = typeof currentInterviewId === 'string' && currentInterviewId.match(/^[0-9a-fA-F]{24}$/);
+        const q = isObjectId ? { _id: currentInterviewId } : { meetingCode: currentInterviewId };
+        const interview = await Interview.findOneAndUpdate(
+          q,
           { challengeId },
           { new: true }
         ).populate('challengeId');
 
-        io.to(currentInterviewId).emit('editor:challenge-updated', {
-          challenge: interview.challengeId,
-          activeCode: interview.activeCode
-        });
+        if (interview) {
+          io.to(currentInterviewId).emit('editor:challenge-updated', {
+            challenge: interview.challengeId,
+            activeCode: interview.activeCode
+          });
+        }
       } catch (e) {
         console.error('[Set Challenge Error]', e);
       }
