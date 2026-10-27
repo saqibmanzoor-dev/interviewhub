@@ -5,6 +5,7 @@ import {
   demoLogin, 
   getMe, 
   googleAuth, 
+  googleCallback,
   logout,
   forgotPassword,
   resetPassword,
@@ -23,6 +24,6 @@ router.post('/forgot-password', forgotPassword);
 router.post('/reset-password', resetPassword);
 router.get('/me', protect, getMe);
 router.get('/google', googleAuth);
-router.get('/google/callback', googleAuth);
+router.get('/google/callback', googleCallback);
 
 export default router;

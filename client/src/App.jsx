@@ -4,6 +4,7 @@ import Navbar from './components/Navbar';
 import ProtectedRoute from './components/ProtectedRoute';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import AuthCallback from './pages/AuthCallback';
 import Dashboard from './pages/Dashboard';
 import Interviews from './pages/Interviews';
 import Challenges from './pages/Challenges';
@@ -42,6 +43,10 @@ export default function App() {
           <Route 
             path="/register" 
             element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Register />} 
+          />
+          <Route 
+            path="/auth/callback" 
+            element={<AuthCallback />} 
           />
 
           {/* Protected Routes */}
