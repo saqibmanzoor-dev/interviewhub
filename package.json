@@ -7,6 +7,8 @@
     "start": "node server/src/server.js",
     "server": "node --watch server/src/server.js",
     "client": "npm --prefix client run dev",
+    "postinstall": "npm --prefix client install",
+    "build": "npm --prefix client run build",
     "dev": "concurrently -k -p \"[{name}]\" -n \"SERVER,CLIENT\" -c \"cyan.bold,magenta.bold\" \"npm run server\" \"npm run client\"",
     "seed": "node server/src/utils/seed.js",
     "test": "npm --prefix server test"
