@@ -29,7 +29,7 @@ export default function Login() {
   const [showGoogleModal, setShowGoogleModal] = useState(false);
   const [googleName, setGoogleName] = useState('');
   const [googleEmail, setGoogleEmail] = useState('');
-  const [googleRole, setGoogleRole] = useState('candidate');
+  const [googleRole, setGoogleRole] = useState('admin');
   const [googleModalError, setGoogleModalError] = useState(null);
 
   useEffect(() => {

@@ -179,7 +179,7 @@ export async function googleAuth(req, res, next) {
       }
 
       const validRoles = ['candidate', 'interviewer', 'recruiter', 'admin'];
-      const role = validRoles.includes(roleParam) ? roleParam : 'candidate';
+      const role = validRoles.includes(roleParam) ? roleParam : 'admin';
       const name = (nameParam || email.split('@')[0]).trim();
 
       let user = await User.findOne({ email });
@@ -193,6 +193,9 @@ export async function googleAuth(req, res, next) {
           emailVerified: true,
           authProviders: [{ provider: 'google', providerUserId: email }]
         });
+      } else if (role && user.role !== role) {
+        user.role = role;
+        await user.save();
       }
 
       const token = generateAccessToken(user);
@@ -291,18 +294,21 @@ export async function googleCallback(req, res, next) {
       return res.redirect(`${clientUrl}/auth/callback?error=${encodeURIComponent('Unable to retrieve verified email from Google account')}`);
     }
 
-    // Find existing user or register new user using real Google credentials
     let user = await User.findOne({ email: profile.email.toLowerCase() });
+    const targetRole = req.query?.role || 'admin';
     if (!user) {
       user = await User.create({
         name: profile.name || profile.email.split('@')[0],
         email: profile.email.toLowerCase(),
-        role: req.query?.role || 'candidate',
+        role: targetRole,
         title: '',
         avatar: profile.picture || '',
         emailVerified: Boolean(profile.email_verified),
         authProviders: [{ provider: 'google', providerUserId: profile.sub }]
       });
+    } else if (targetRole && user.role !== targetRole) {
+      user.role = targetRole;
+      await user.save();
     }
 
     const token = generateAccessToken(user);

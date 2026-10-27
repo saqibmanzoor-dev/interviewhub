@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { 
   Calendar, 
   Plus, 
@@ -15,17 +15,20 @@ import {
   CheckCircle2, 
   X, 
   AlertCircle,
-  ExternalLink
+  ExternalLink,
+  Zap
 } from 'lucide-react';
 import api from '../services/api';
 import { useAuthStore } from '../store/authStore';
 
 export default function Interviews() {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const { user } = useAuthStore();
   const [interviews, setInterviews] = useState([]);
   const [challenges, setChallenges] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [instantLoading, setInstantLoading] = useState(false);
   const [filterStatus, setFilterStatus] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedCode, setCopiedCode] = useState(null);
@@ -35,10 +38,10 @@ export default function Interviews() {
   const [modalLoading, setModalLoading] = useState(false);
   const [modalError, setModalError] = useState(null);
   const [formData, setFormData] = useState({
-    title: 'Senior Frontend Engineer Technical Round',
-    candidateEmail: 'sarah.chen@candidate.com',
-    candidateName: 'Sarah Chen',
-    scheduledAt: new Date(Date.now() + 86400000).toISOString().slice(0, 16),
+    title: 'Technical Interview Session',
+    candidateEmail: '',
+    candidateName: '',
+    scheduledAt: new Date(Date.now() + 3600000).toISOString().slice(0, 16),
     durationMinutes: 60,
     challengeId: ''
   });
@@ -106,6 +109,26 @@ export default function Interviews() {
     }
   };
 
+  const handleInstantMeeting = async () => {
+    setInstantLoading(true);
+    try {
+      const res = await api.post('/interviews', {
+        title: `${user?.name || 'Live'} Technical Interview`,
+        durationMinutes: 60,
+        challengeId: challenges[0]?._id || undefined
+      });
+      const meetingCode = res.data.data?.meetingCode;
+      if (meetingCode) {
+        navigate(`/room/${meetingCode}`);
+      }
+    } catch (err) {
+      console.error('Instant meeting error:', err);
+      alert(err.response?.data?.message || 'Failed to start instant meeting');
+    } finally {
+      setInstantLoading(false);
+    }
+  };
+
   const filtered = interviews.filter((item) => {
     const matchesStatus = filterStatus === 'all' || item.status === filterStatus;
     const matchesSearch = 
@@ -132,13 +155,30 @@ export default function Interviews() {
             </p>
           </div>
 
-          <button
-            onClick={() => setShowModal(true)}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-lg shadow-emerald-600/20 transition-all hover:scale-102 self-start sm:self-auto"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Schedule New Interview</span>
-          </button>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              onClick={handleInstantMeeting}
+              disabled={instantLoading}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-semibold shadow-lg shadow-emerald-600/25 transition-all hover:scale-102 self-start sm:self-auto disabled:opacity-50 cursor-pointer"
+            >
+              {instantLoading ? (
+                <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+              ) : (
+                <>
+                  <Video className="w-4 h-4" />
+                  <span>Start Instant Meeting</span>
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={() => setShowModal(true)}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold shadow-md transition-all hover:scale-102 self-start sm:self-auto cursor-pointer"
+            >
+              <Plus className="w-4 h-4 text-emerald-400" />
+              <span>Schedule Interview</span>
+            </button>
+          </div>
         </div>
 
         {/* Filters & Search Toolbar */}
@@ -332,20 +372,24 @@ export default function Interviews() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">Candidate Name</label>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                    Candidate Name <span className="text-slate-500 font-normal">(Optional)</span>
+                  </label>
                   <input
                     type="text"
-                    required
+                    placeholder="Candidate name"
                     value={formData.candidateName}
                     onChange={(e) => setFormData({ ...formData, candidateName: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">Candidate Email</label>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                    Candidate Email <span className="text-slate-500 font-normal">(Optional)</span>
+                  </label>
                   <input
                     type="email"
-                    required
+                    placeholder="candidate@example.com"
                     value={formData.candidateEmail}
                     onChange={(e) => setFormData({ ...formData, candidateEmail: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-emerald-500"

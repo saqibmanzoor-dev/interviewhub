@@ -44,7 +44,27 @@ export default function Dashboard() {
   const [analytics, setAnalytics] = useState(null);
   const [interviews, setInterviews] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [instantLoading, setInstantLoading] = useState(false);
   const [meetingInput, setMeetingInput] = useState('');
+
+  const handleInstantMeeting = async () => {
+    setInstantLoading(true);
+    try {
+      const res = await api.post('/interviews', {
+        title: `${user?.name || 'Live'} Technical Interview`,
+        durationMinutes: 60
+      });
+      const meetingCode = res.data.data?.meetingCode;
+      if (meetingCode) {
+        navigate(`/room/${meetingCode}`);
+      }
+    } catch (err) {
+      console.error('Instant meeting error:', err);
+      alert(err.response?.data?.message || 'Failed to start instant meeting');
+    } finally {
+      setInstantLoading(false);
+    }
+  };
 
   useEffect(() => {
     fetchDashboardData();
@@ -117,11 +137,26 @@ export default function Dashboard() {
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={handleInstantMeeting}
+              disabled={instantLoading}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-semibold shadow-lg shadow-emerald-600/25 transition-all hover:scale-102 disabled:opacity-50 cursor-pointer"
+            >
+              {instantLoading ? (
+                <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+              ) : (
+                <>
+                  <Video className="w-4 h-4" />
+                  <span>Start Instant Meeting</span>
+                </>
+              )}
+            </button>
+
             <Link
               to="/interviews?create=true"
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-lg shadow-emerald-600/20 transition-all hover:scale-102"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold shadow-md transition-all hover:scale-102"
             >
-              <Plus className="w-4 h-4" />
+              <Plus className="w-4 h-4 text-emerald-400" />
               <span>Schedule Interview</span>
             </Link>
 

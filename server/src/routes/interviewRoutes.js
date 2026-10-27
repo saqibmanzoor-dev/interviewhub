@@ -13,11 +13,11 @@ const router = express.Router();
 
 router.use(protect);
 
-router.post('/', authorizeRoles('interviewer', 'recruiter', 'admin'), createInterview);
+router.post('/', createInterview);
 router.get('/', getInterviews);
 router.get('/:id', getInterviewById);
-router.patch('/:id', authorizeRoles('interviewer', 'recruiter', 'admin'), updateInterview);
+router.patch('/:id', updateInterview);
 router.post('/:id/join', joinInterview);
-router.post('/:id/end', authorizeRoles('interviewer', 'recruiter', 'admin'), endInterview);
+router.post('/:id/end', endInterview);
 
 export default router;

@@ -24,9 +24,9 @@ export async function createInterview(req, res, next) {
         cand = await User.create({
           name: candidateName || candidateEmail.split('@')[0],
           email: candidateEmail.toLowerCase(),
-          passwordHash: '$2a$10$wT0lV3zD.d1234567890OepJ9eP950yT/Q39e3g8n8uQ78/S.',
+          passwordHash: null,
           role: 'candidate',
-          title: 'Software Engineer Candidate',
+          title: '',
           emailVerified: true
         });
       }
