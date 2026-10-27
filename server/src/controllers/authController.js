@@ -1,5 +1,6 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import passport from 'passport';
 import User from '../models/User.js';
 import AnalyticsEvent from '../models/AnalyticsEvent.js';
 import { generateAccessToken, generateRefreshToken } from '../utils/token.js';
@@ -221,6 +222,17 @@ export async function googleAuth(req, res, next) {
       return res.redirect(`${clientUrl}/auth/callback?token=${token}&role=${user.role}&name=${encodeURIComponent(user.name)}`);
     }
 
+    // Use Passport.js Google OAuth Strategy if configured
+    if (passport._strategies && passport._strategies.google) {
+      const targetRole = roleParam || 'admin';
+      return passport.authenticate('google', {
+        scope: ['profile', 'email'],
+        state: targetRole,
+        prompt: 'select_account',
+        session: false
+      })(req, res, next);
+    }
+
     const clientId = process.env.GOOGLE_CLIENT_ID?.trim();
     const callbackUrl = process.env.GOOGLE_CALLBACK_URL || `${req.protocol}://${req.get('host')}/api/v1/auth/google/callback`;
 
@@ -229,10 +241,10 @@ export async function googleAuth(req, res, next) {
       if (req.method === 'POST') {
         return res.status(400).json({
           success: false,
-          message: 'Google Cloud OAuth credentials not configured in server/.env.'
+          message: 'Passport Google OAuth requires GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET. Enter your Google email directly or set env variables.'
         });
       }
-      return res.redirect(`${clientUrl}/auth/callback?error=${encodeURIComponent('Google OAuth credentials not configured in Google Cloud Console. Enter your Google email address directly to sign in.')}`);
+      return res.redirect(`${clientUrl}/auth/callback?error=${encodeURIComponent('Passport Google OAuth credentials not configured in server/.env. Enter your Google email directly in the sign-in modal.')}`);
     }
 
     // Direct redirect to genuine Google accounts OAuth 2.0 consent screen
@@ -246,6 +258,20 @@ export async function googleAuth(req, res, next) {
 // Google OAuth 2.0 Callback Handler
 export async function googleCallback(req, res, next) {
   const clientUrl = process.env.CLIENT_URL || req.headers.origin || `${req.protocol}://${req.hostname}:5173`;
+
+  // Delegate callback authentication to Passport.js if Google strategy is active
+  if (passport._strategies && passport._strategies.google) {
+    return passport.authenticate('google', { session: false }, (err, user, info) => {
+      if (err || !user) {
+        const errorMsg = err?.message || info?.message || 'Passport authentication with Google failed';
+        return res.redirect(`${clientUrl}/auth/callback?error=${encodeURIComponent(errorMsg)}`);
+      }
+
+      const token = generateAccessToken(user);
+      return res.redirect(`${clientUrl}/auth/callback?token=${token}&role=${user.role}&name=${encodeURIComponent(user.name)}`);
+    })(req, res, next);
+  }
+
   try {
     const { code, error } = req.query;
 
