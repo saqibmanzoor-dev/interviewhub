@@ -58,6 +58,21 @@ export const useAuthStore = create((set, get) => ({
     }
   },
 
+  googleLogin: async ({ email, name, role = 'candidate' }) => {
+    set({ isLoading: true, error: null });
+    try {
+      const res = await api.post('/auth/google', { email, name, role });
+      const { token, user } = res.data.data;
+      localStorage.setItem('interviewhub_token', token);
+      set({ user, token, isAuthenticated: true, isLoading: false });
+      return { success: true };
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Google sign in failed';
+      set({ error: msg, isLoading: false });
+      return { success: false, error: msg };
+    }
+  },
+
   register: async (userData) => {
     set({ isLoading: true, error: null });
     try {

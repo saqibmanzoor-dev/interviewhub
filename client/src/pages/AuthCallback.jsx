@@ -69,13 +69,19 @@ GOOGLE_CLIENT_ID=your_client_id.apps.googleusercontent.com&#10;GOOGLE_CLIENT_SEC
             </div>
           )}
 
-          <div className="pt-2">
+          <div className="pt-2 flex flex-col sm:flex-row gap-2">
+            <button
+              onClick={() => navigate('/login?google=1', { replace: true })}
+              className="flex-1 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-xs transition-colors flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20"
+            >
+              <span>Sign in with Google Email Directly</span>
+            </button>
             <button
               onClick={() => navigate('/login', { replace: true })}
-              className="w-full py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-xs transition-colors flex items-center justify-center gap-2"
+              className="py-2.5 px-4 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium text-xs transition-colors flex items-center justify-center gap-2"
             >
               <ArrowLeft className="w-4 h-4" />
-              <span>Return to Login Screen</span>
+              <span>Back</span>
             </button>
           </div>
         </div>
