@@ -29,17 +29,37 @@ async function ensureLocalMongo() {
   }
 }
 
+let isConnected = false;
+
 export async function connectDB() {
+  if (mongoose.connection.readyState >= 1) {
+    return mongoose.connection;
+  }
+
   const uri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/interviewhub';
+
   try {
-    await mongoose.connect(uri, { serverSelectionTimeoutMS: 2000 });
-    console.log(`[DB] Connected to MongoDB at ${uri}`);
+    const conn = await mongoose.connect(uri, { 
+      serverSelectionTimeoutMS: 4000,
+      bufferCommands: false
+    });
+    isConnected = true;
+    const sanitizedUri = uri.includes('@') ? uri.replace(/:([^:@]+)@/, ':****@') : uri;
+    console.log(`[DB] Connected to MongoDB at ${sanitizedUri}`);
+    return conn;
   } catch (err) {
+    if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+      console.error(`[DB] Cloud serverless connection error: ${err.message}`);
+      throw err;
+    }
+
     console.warn(`[DB] Direct connection to ${uri} failed: ${err.message}. Attempting to launch local mongod...`);
     await ensureLocalMongo();
     try {
-      await mongoose.connect(uri, { serverSelectionTimeoutMS: 5000 });
+      const conn = await mongoose.connect(uri, { serverSelectionTimeoutMS: 5000 });
+      isConnected = true;
       console.log(`[DB] Successfully connected to spawned local MongoDB at ${uri}`);
+      return conn;
     } catch (launchErr) {
       console.error(`[DB] Critical: Failed to connect to MongoDB: ${launchErr.message}`);
       throw launchErr;

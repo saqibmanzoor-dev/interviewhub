@@ -1,9 +1,16 @@
 {
-  "installCommand": "npm --prefix client install",
+  "version": 2,
   "buildCommand": "npm --prefix client run build",
   "outputDirectory": "client/dist",
-  "framework": "vite",
   "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/health",
+      "destination": "/api/index.js"
+    },
     {
       "source": "/(.*)",
       "destination": "/index.html"
