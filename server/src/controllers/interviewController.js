@@ -4,6 +4,7 @@ import InterviewSession from '../models/InterviewSession.js';
 import CodingChallenge from '../models/CodingChallenge.js';
 import Notification from '../models/Notification.js';
 import AnalyticsEvent from '../models/AnalyticsEvent.js';
+import { sendInterviewInvitationEmail } from '../services/emailService.js';
 import crypto from 'crypto';
 
 function generateMeetingCode() {
@@ -106,7 +107,45 @@ export async function createInterview(req, res, next) {
       .populate('interviewerIds', 'name email avatar role title')
       .populate('challengeId', 'title difficulty category');
 
-    res.status(201).json({ success: true, message: 'Interview scheduled successfully.', data: populated });
+    // Send real-time Email Notification with join link to candidate
+    const candEmail = candidateEmail || populated?.candidateId?.email;
+    const candName = candidateName || populated?.candidateId?.name || 'Candidate';
+    const hostName = req.user?.name || 'Lead Interviewer';
+    const hostEmail = req.user?.email || '';
+    const clientUrl = req.headers.origin || process.env.CLIENT_URL;
+
+    if (candEmail) {
+      sendInterviewInvitationEmail({
+        recipientEmail: candEmail,
+        recipientName: candName,
+        hostName,
+        hostEmail,
+        interviewTitle: title,
+        scheduledStart: start,
+        scheduledEnd: end,
+        durationMinutes: Number(durationMinutes) || 60,
+        meetingCode,
+        clientUrl
+      }).catch(err => console.error('[InterviewController] Candidate email error:', err.message));
+    }
+
+    // Send confirmation copy to host if different email
+    if (hostEmail && hostEmail.toLowerCase() !== candEmail?.toLowerCase()) {
+      sendInterviewInvitationEmail({
+        recipientEmail: hostEmail,
+        recipientName: hostName,
+        hostName,
+        hostEmail,
+        interviewTitle: `Confirmation: ${title}`,
+        scheduledStart: start,
+        scheduledEnd: end,
+        durationMinutes: Number(durationMinutes) || 60,
+        meetingCode,
+        clientUrl
+      }).catch(err => console.error('[InterviewController] Host confirmation email error:', err.message));
+    }
+
+    res.status(201).json({ success: true, message: 'Interview scheduled successfully. Invitation email dispatched.', data: populated });
   } catch (err) {
     next(err);
   }

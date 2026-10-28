@@ -385,7 +385,7 @@ export default function Interviews() {
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-300 mb-1">
-                    Candidate Email <span className="text-slate-500 font-normal">(Optional)</span>
+                    Candidate Email <span className="text-emerald-400 font-normal">(Receives Invite)</span>
                   </label>
                   <input
                     type="email"
@@ -394,6 +394,9 @@ export default function Interviews() {
                     onChange={(e) => setFormData({ ...formData, candidateEmail: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
                   />
+                  <p className="text-[10px] text-emerald-400/90 mt-1">
+                    ✉️ Instant email notification with join link will be sent
+                  </p>
                 </div>
               </div>
 
