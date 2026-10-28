@@ -50,3 +50,5 @@ export function authorizeRoles(...roles) {
     next();
   };
 }
+
+export const authorize = authorizeRoles;

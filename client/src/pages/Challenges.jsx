@@ -29,6 +29,7 @@ export default function Challenges() {
   const fetchChallenges = async () => {
     setIsLoading(true);
     try {
+      const res = await api.get('/challenges');
       const list = res.data.data?.challenges || (Array.isArray(res.data.data) ? res.data.data : []);
       setChallenges(list);
     } catch (err) {

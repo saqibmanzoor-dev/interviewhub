@@ -5,14 +5,15 @@ import { useAuthStore } from '../store/authStore';
 
 export default function Register() {
   const navigate = useNavigate();
-  const { register, isLoading, error } = useAuthStore();
+  const { register, requestRegisterOtp, isLoading, error } = useAuthStore();
+  const [useOtp, setUseOtp] = useState(true);
 
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     password: '',
     role: 'candidate',
-    organizationName: ''
+    title: ''
   });
   const [localError, setLocalError] = useState(null);
 
@@ -27,9 +28,19 @@ export default function Register() {
       setLocalError('Please complete all required fields.');
       return;
     }
-    const res = await register(formData);
-    if (res.success) {
-      navigate('/dashboard');
+
+    if (useOtp) {
+      const res = await requestRegisterOtp(formData);
+      if (res.success) {
+        navigate('/verify-otp', { state: { email: formData.email } });
+      } else {
+        setLocalError(res.error || 'Failed to dispatch verification code.');
+      }
+    } else {
+      const res = await register(formData);
+      if (res.success) {
+        navigate('/dashboard');
+      }
     }
   };
 

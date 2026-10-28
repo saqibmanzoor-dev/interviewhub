@@ -103,4 +103,77 @@ describe('InterviewHub Backend API Suite', () => {
     expect(res.body.data.totalUsers).toBeGreaterThan(0);
     expect(res.body.data.completionRate).toBeDefined();
   });
+
+  it('GET /api/v1/event-types/public/:slug retrieves public booking event type', async () => {
+    const res = await request(app).get('/api/v1/event-types/public/frontend-live-coding');
+    expect(res.status).toBe(200);
+    expect(res.body.data.slug).toBe('frontend-live-coding');
+    expect(res.body.data.userId).toBeDefined();
+    expect(res.body.data.duration).toBe(45);
+  });
+
+  it('GET /api/v1/availability/slots calculates slots for event type', async () => {
+    const eventRes = await request(app).get('/api/v1/event-types/public/frontend-live-coding');
+    const eventTypeId = eventRes.body.data._id;
+
+    // Use tomorrow's date
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 2);
+    const dateStr = tomorrow.toISOString().split('T')[0];
+
+    const slotsRes = await request(app).get(`/api/v1/availability/slots?eventTypeId=${eventTypeId}&date=${dateStr}`);
+    expect(slotsRes.status).toBe(200);
+    expect(slotsRes.body.data.date).toBe(dateStr);
+    expect(Array.isArray(slotsRes.body.data.slots)).toBe(true);
+  });
+
+  it('POST /api/v1/bookings/public books a slot and prevents double-booking', async () => {
+    const eventRes = await request(app).get('/api/v1/event-types/public/frontend-live-coding');
+    const eventTypeId = eventRes.body.data._id;
+
+    // Unique future time slot for each test run to ensure clean isolated test
+    const futureDate = new Date(Date.now() + (10 + Math.random() * 10) * 86400000);
+    futureDate.setSeconds(0, 0);
+
+    const bookingPayload = {
+      eventTypeId,
+      slotStart: futureDate.toISOString(),
+      candidateName: 'Booking Test Candidate',
+      candidateEmail: `booking.${Date.now()}@example.com`,
+      attendeeNotes: 'Excited for live interview'
+    };
+
+    // First booking attempt should succeed
+    const firstRes = await request(app)
+      .post('/api/v1/bookings/public')
+      .send(bookingPayload);
+
+    expect(firstRes.status).toBe(201);
+    expect(firstRes.body.data.meetingCode).toBeDefined();
+
+    // Second booking attempt for overlapping slot should be rejected with 409 Conflict
+    const secondRes = await request(app)
+      .post('/api/v1/bookings/public')
+      .send(bookingPayload);
+
+    expect(secondRes.status).toBe(409);
+    expect(secondRes.body.message).toContain('no longer available');
+  });
+
+  it('POST /api/v1/auth/register-otp dispatches OTP without leaking plain code', async () => {
+    const res = await request(app)
+      .post('/api/v1/auth/register-otp')
+      .send({
+        name: 'New Candidate',
+        email: `otp.cand.${Date.now()}@example.com`,
+        password: 'Password123!',
+        role: 'candidate'
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.message).toContain('6-digit verification code');
+    // Security check: ensure raw OTP is never returned in HTTP response
+    expect(res.body.otp).toBeUndefined();
+    expect(res.body.code).toBeUndefined();
+  });
 });

@@ -18,6 +18,27 @@ const interviewSchema = new mongoose.Schema({
   },
   meetingCode: { type: String, required: true, unique: true, index: true }, // e.g., 'abc-defg-hij'
   meetingTokenHash: { type: String, default: '' },
+  eventTypeId: { type: mongoose.Schema.Types.ObjectId, ref: 'EventType', default: null },
+  attendeeName: { type: String, default: '' },
+  attendeeEmail: { type: String, default: '' },
+  attendeeNotes: { type: String, default: '' },
+  bookingAnswers: [{
+    questionId: String,
+    questionLabel: String,
+    answer: String
+  }],
+  cancellationReason: { type: String, default: '' },
+  rescheduleHistory: [{
+    previousStart: Date,
+    previousEnd: Date,
+    rescheduledAt: { type: Date, default: Date.now },
+    reason: String
+  }],
+  icsUID: { type: String, default: '' },
+  remindersSent: [{
+    offsetMinutes: Number,
+    sentAt: { type: Date, default: Date.now }
+  }],
   challengeId: { type: mongoose.Schema.Types.ObjectId, ref: 'CodingChallenge', default: null },
   activeCode: { type: String, default: '' },
   activeLanguage: { type: String, default: 'javascript' },
@@ -28,5 +49,6 @@ const interviewSchema = new mongoose.Schema({
 
 interviewSchema.index({ status: 1, scheduledStart: 1 });
 interviewSchema.index({ candidateId: 1, scheduledStart: -1 });
+interviewSchema.index({ eventTypeId: 1 });
 
 export default mongoose.model('Interview', interviewSchema);

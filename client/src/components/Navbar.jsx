@@ -4,6 +4,7 @@ import {
   Video, 
   LayoutDashboard, 
   Calendar, 
+  Clock,
   Code2, 
   Award, 
   LogOut, 
@@ -20,7 +21,7 @@ import { useAuthStore } from '../store/authStore';
 export default function Navbar() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, logout, demoLogin } = useAuthStore();
+  const { user, logout, demoLogin, isAuthenticated } = useAuthStore();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showRoleMenu, setShowRoleMenu] = useState(false);
   const [quickCode, setQuickCode] = useState('');
@@ -31,11 +32,19 @@ export default function Navbar() {
     return null;
   }
 
+  const isInterviewerOrAdmin = ['interviewer', 'recruiter', 'admin'].includes(user?.role);
+  const isAdmin = ['admin', 'recruiter'].includes(user?.role);
+
   const navLinks = [
     { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
     { name: 'Interviews', path: '/interviews', icon: Calendar },
+    ...(isInterviewerOrAdmin ? [
+      { name: 'Event Types', path: '/event-types', icon: Calendar },
+      { name: 'Working Hours', path: '/availability', icon: Clock }
+    ] : []),
     { name: 'Challenges', path: '/challenges', icon: Code2 },
     { name: 'Evaluations', path: '/evaluations', icon: Award },
+    ...(isAdmin ? [{ name: 'Admin', path: '/admin', icon: ShieldCheck }] : [])
   ];
 
   const handleQuickJoin = (e) => {
@@ -245,6 +254,14 @@ export default function Navbar() {
                     <Calendar className="w-4 h-4 text-slate-400" />
                     <span>My Interviews</span>
                   </Link>
+                  <Link
+                    to="/settings"
+                    onClick={() => setShowUserMenu(false)}
+                    className="flex items-center gap-2 px-3 py-2 text-slate-300 hover:bg-slate-800 hover:text-white transition-colors"
+                  >
+                    <User className="w-4 h-4 text-slate-400" />
+                    <span>Profile & Settings</span>
+                  </Link>
                 </div>
 
                 <div className="pt-1 border-t border-slate-800">
@@ -252,7 +269,7 @@ export default function Navbar() {
                     onClick={() => {
                       setShowUserMenu(false);
                       logout();
-                      navigate('/login');
+                      navigate('/');
                     }}
                     className="w-full flex items-center gap-2 px-3 py-2 text-rose-400 hover:bg-rose-500/10 transition-colors"
                   >

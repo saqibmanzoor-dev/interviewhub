@@ -16,8 +16,15 @@ const userSchema = new mongoose.Schema({
     default: 'candidate'
   },
   title: { type: String, default: '' }, // e.g. Senior Software Engineer
+  bio: { type: String, default: '' },
+  timezone: { type: String, default: 'UTC' },
+  bookingSlug: { type: String, unique: true, sparse: true, lowercase: true, trim: true },
   organizationId: { type: String, default: 'default-org', index: true },
   emailVerified: { type: Boolean, default: false },
+  notificationPreferences: {
+    emailReminders: { type: Boolean, default: true },
+    emailInvitations: { type: Boolean, default: true }
+  },
   authProviders: [authProviderSchema],
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }

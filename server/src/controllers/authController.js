@@ -1,9 +1,13 @@
+import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import passport from 'passport';
 import User from '../models/User.js';
+import OTPChallenge from '../models/OTPChallenge.js';
 import AnalyticsEvent from '../models/AnalyticsEvent.js';
+import AuditLog from '../models/AuditLog.js';
 import { generateAccessToken, generateRefreshToken } from '../utils/token.js';
+import { sendOtpEmail } from '../services/emailService.js';
 
 export async function register(req, res, next) {
   try {
@@ -64,6 +68,217 @@ export async function register(req, res, next) {
     next(err);
   }
 }
+
+/**
+ * Step 1 of OTP Registration: Validates input, generates 6-digit OTP, stores hash, sends email
+ */
+export async function requestRegisterOtp(req, res, next) {
+  try {
+    const { name, email, password, role = 'candidate', title } = req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({ success: false, message: 'Please provide name, email, and password.' });
+    }
+
+    const cleanEmail = email.toLowerCase().trim();
+    const existing = await User.findOne({ email: cleanEmail });
+    if (existing) {
+      return res.status(400).json({ success: false, message: 'An account with this email already exists.' });
+    }
+
+    // Rate limit OTP requests (cooldown 60s)
+    const recentChallenge = await OTPChallenge.findOne({
+      email: cleanEmail,
+      purpose: 'registration',
+      createdAt: { $gt: new Date(Date.now() - 60000) }
+    });
+    if (recentChallenge) {
+      return res.status(429).json({ success: false, message: 'Please wait 60 seconds before requesting a new code.' });
+    }
+
+    // Generate cryptographically secure 6-digit OTP
+    const rawOtp = crypto.randomInt(100000, 999999).toString();
+    const otpHash = crypto.createHash('sha256').update(rawOtp).digest('hex');
+
+    // Invalidate existing registration OTPs for this email
+    await OTPChallenge.deleteMany({ email: cleanEmail, purpose: 'registration' });
+
+    // Salt and hash password temporarily stored in metadata so verification can create user
+    const salt = await bcrypt.genSalt(10);
+    const passwordHash = await bcrypt.hash(password, salt);
+
+    await OTPChallenge.create({
+      email: cleanEmail,
+      otpHash,
+      purpose: 'registration',
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
+      metadata: {
+        name: name.trim(),
+        passwordHash,
+        role: ['candidate', 'interviewer', 'recruiter', 'admin'].includes(role) ? role : 'candidate',
+        title: title || ''
+      }
+    });
+
+    await sendOtpEmail({
+      recipientEmail: cleanEmail,
+      recipientName: name,
+      otpCode: rawOtp,
+      purpose: 'registration',
+      expiresInMinutes: 10
+    });
+
+    res.json({
+      success: true,
+      message: `A 6-digit verification code has been dispatched to ${cleanEmail}.`
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * Step 2 of OTP Registration: Verifies OTP code, provisions user account, and signs in
+ */
+export async function verifyRegisterOtp(req, res, next) {
+  try {
+    const { email, otp } = req.body;
+    if (!email || !otp) {
+      return res.status(400).json({ success: false, message: 'Email and verification code are required.' });
+    }
+
+    const cleanEmail = email.toLowerCase().trim();
+    const challenge = await OTPChallenge.findOne({
+      email: cleanEmail,
+      purpose: 'registration',
+      isUsed: false,
+      expiresAt: { $gt: new Date() }
+    });
+
+    if (!challenge) {
+      return res.status(400).json({ success: false, message: 'Verification code has expired or is invalid. Please request a new one.' });
+    }
+
+    if (challenge.attempts >= challenge.maxAttempts) {
+      await OTPChallenge.deleteOne({ _id: challenge._id });
+      return res.status(429).json({ success: false, message: 'Maximum verification attempts exceeded. Please request a new code.' });
+    }
+
+    const inputHash = crypto.createHash('sha256').update(otp.trim()).digest('hex');
+    const isMatch = crypto.timingSafeEqual(Buffer.from(inputHash), Buffer.from(challenge.otpHash));
+
+    if (!isMatch) {
+      challenge.attempts += 1;
+      await challenge.save();
+      return res.status(400).json({ success: false, message: 'Incorrect verification code. Please check and try again.' });
+    }
+
+    // Mark challenge as used
+    challenge.isUsed = true;
+    await challenge.save();
+
+    const { name, passwordHash, role, title } = challenge.metadata;
+    let user = await User.findOne({ email: cleanEmail });
+    if (!user) {
+      // Auto-assign unique bookingSlug based on name
+      const baseSlug = name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'user';
+      let bookingSlug = baseSlug;
+      let counter = 1;
+      while (await User.findOne({ bookingSlug })) {
+        bookingSlug = `${baseSlug}-${counter++}`;
+      }
+
+      user = await User.create({
+        name,
+        email: cleanEmail,
+        passwordHash,
+        role: role || 'candidate',
+        title: title || '',
+        bookingSlug,
+        emailVerified: true
+      });
+    } else {
+      user.emailVerified = true;
+      await user.save();
+    }
+
+    const accessToken = generateAccessToken(user);
+    const refreshToken = generateRefreshToken(user);
+
+    await AuditLog.create({
+      actorId: user._id,
+      action: 'auth.otp_verified',
+      resourceType: 'User',
+      resourceId: user._id.toString(),
+      details: { email: cleanEmail }
+    });
+
+    res.json({
+      success: true,
+      message: 'Email successfully verified! Welcome to InterviewHub.',
+      data: {
+        token: accessToken,
+        refreshToken,
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          title: user.title,
+          avatar: user.avatar,
+          bookingSlug: user.bookingSlug,
+          organizationId: user.organizationId
+        }
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * Resend OTP Code
+ */
+export async function resendOtp(req, res, next) {
+  try {
+    const { email, purpose = 'registration' } = req.body;
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Please provide your email address.' });
+    }
+
+    const cleanEmail = email.toLowerCase().trim();
+    const existingChallenge = await OTPChallenge.findOne({ email: cleanEmail, purpose });
+
+    if (!existingChallenge && purpose === 'registration') {
+      return res.status(400).json({ success: false, message: 'No pending registration found for this email. Please register first.' });
+    }
+
+    const rawOtp = crypto.randomInt(100000, 999999).toString();
+    const otpHash = crypto.createHash('sha256').update(rawOtp).digest('hex');
+
+    await OTPChallenge.deleteMany({ email: cleanEmail, purpose });
+    await OTPChallenge.create({
+      email: cleanEmail,
+      otpHash,
+      purpose,
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+      metadata: existingChallenge?.metadata || {}
+    });
+
+    await sendOtpEmail({
+      recipientEmail: cleanEmail,
+      recipientName: existingChallenge?.metadata?.name || 'User',
+      otpCode: rawOtp,
+      purpose,
+      expiresInMinutes: 10
+    });
+
+    res.json({ success: true, message: `New verification code dispatched to ${cleanEmail}.` });
+  } catch (err) {
+    next(err);
+  }
+}
+
 
 export async function login(req, res, next) {
   try {

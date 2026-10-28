@@ -1,6 +1,9 @@
 import express from 'express';
 import { 
   register, 
+  requestRegisterOtp,
+  verifyRegisterOtp,
+  resendOtp,
   login, 
   demoLogin, 
   getMe, 
@@ -16,6 +19,9 @@ import { protect } from '../middleware/authMiddleware.js';
 const router = express.Router();
 
 router.post('/register', register);
+router.post('/register-otp', requestRegisterOtp);
+router.post('/verify-otp', verifyRegisterOtp);
+router.post('/resend-otp', resendOtp);
 router.post('/login', login);
 router.post('/demo-login', demoLogin);
 router.post('/logout', logout);

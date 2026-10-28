@@ -9,6 +9,10 @@ import InterviewEvaluation from '../models/InterviewEvaluation.js';
 import ChatMessage from '../models/ChatMessage.js';
 import Notification from '../models/Notification.js';
 import AnalyticsEvent from '../models/AnalyticsEvent.js';
+import EventType from '../models/EventType.js';
+import AvailabilityRule from '../models/AvailabilityRule.js';
+import TimeOff from '../models/TimeOff.js';
+import AuditLog from '../models/AuditLog.js';
 
 dotenv.config();
 
@@ -23,7 +27,11 @@ export async function seedDatabase() {
     InterviewEvaluation.deleteMany({}),
     ChatMessage.deleteMany({}),
     Notification.deleteMany({}),
-    AnalyticsEvent.deleteMany({})
+    AnalyticsEvent.deleteMany({}),
+    EventType.deleteMany({}),
+    AvailabilityRule.deleteMany({}),
+    TimeOff.deleteMany({}),
+    AuditLog.deleteMany({})
   ]);
 
   console.log('[Seed] Seeding Users...');
@@ -38,6 +46,8 @@ export async function seedDatabase() {
       role: 'candidate',
       title: 'Full-Stack Developer (3 YOE)',
       avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+      bookingSlug: 'alex-chen',
+      timezone: 'America/New_York',
       emailVerified: true
     },
     {
@@ -47,6 +57,8 @@ export async function seedDatabase() {
       role: 'candidate',
       title: 'Senior Frontend Engineer (5 YOE)',
       avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80',
+      bookingSlug: 'sarah-jenkins',
+      timezone: 'America/Los_Angeles',
       emailVerified: true
     },
     {
@@ -56,6 +68,8 @@ export async function seedDatabase() {
       role: 'candidate',
       title: 'Backend Systems Engineer',
       avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
+      bookingSlug: 'david-kim',
+      timezone: 'America/Chicago',
       emailVerified: true
     },
     {
@@ -65,6 +79,8 @@ export async function seedDatabase() {
       role: 'candidate',
       title: 'Distributed Systems & Cloud Engineer',
       avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80',
+      bookingSlug: 'priya-patel',
+      timezone: 'Europe/London',
       emailVerified: true
     },
     {
@@ -73,7 +89,10 @@ export async function seedDatabase() {
       passwordHash: commonPasswordHash,
       role: 'interviewer',
       title: 'Staff Software Engineer @ Cloud Core',
+      bio: 'Leading backend infrastructure and distributed systems. 10+ years interviewing candidates across FAANG.',
       avatar: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=150&auto=format&fit=crop&q=80',
+      bookingSlug: 'elena-rostova',
+      timezone: 'America/New_York',
       emailVerified: true
     },
     {
@@ -82,7 +101,10 @@ export async function seedDatabase() {
       passwordHash: commonPasswordHash,
       role: 'interviewer',
       title: 'Principal Architect & Technical Lead',
+      bio: 'Specializing in concurrent algorithms, real-time pipelines, and microservices architecture.',
       avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80',
+      bookingSlug: 'james-wilson',
+      timezone: 'America/Los_Angeles',
       emailVerified: true
     },
     {
@@ -91,7 +113,10 @@ export async function seedDatabase() {
       passwordHash: commonPasswordHash,
       role: 'interviewer',
       title: 'Engineering Manager & Hiring Bar Raiser',
+      bio: 'Focused on high-performance frontend engineering and full-stack systems design.',
       avatar: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=150&auto=format&fit=crop&q=80',
+      bookingSlug: 'michael-chang',
+      timezone: 'Europe/London',
       emailVerified: true
     },
     {
@@ -101,6 +126,8 @@ export async function seedDatabase() {
       role: 'recruiter',
       title: 'Lead Technical Talent Partner',
       avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+      bookingSlug: 'rachel-green',
+      timezone: 'America/New_York',
       emailVerified: true
     },
     {
@@ -110,6 +137,8 @@ export async function seedDatabase() {
       role: 'admin',
       title: 'Chief Technology Officer / Administrator',
       avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&auto=format&fit=crop&q=80',
+      bookingSlug: 'admin',
+      timezone: 'UTC',
       emailVerified: true
     }
   ]);
@@ -322,6 +351,105 @@ The functions \`get\` and \`put\` must each run in O(1) average time complexity.
   ]);
 
   const [twoSum, validParen, mergeIntervals, lruCache] = challenges;
+
+  console.log('[Seed] Seeding Availability Rules...');
+  const standardSchedule = {
+    monday: { enabled: true, intervals: [{ start: '09:00', end: '17:00' }] },
+    tuesday: { enabled: true, intervals: [{ start: '09:00', end: '17:00' }] },
+    wednesday: { enabled: true, intervals: [{ start: '09:00', end: '17:00' }] },
+    thursday: { enabled: true, intervals: [{ start: '09:00', end: '17:00' }] },
+    friday: { enabled: true, intervals: [{ start: '09:00', end: '17:00' }] },
+    saturday: { enabled: false, intervals: [] },
+    sunday: { enabled: false, intervals: [] }
+  };
+
+  await AvailabilityRule.insertMany([
+    {
+      userId: elena._id,
+      timezone: 'America/New_York',
+      weeklySchedule: standardSchedule,
+      dateOverrides: []
+    },
+    {
+      userId: james._id,
+      timezone: 'America/Los_Angeles',
+      weeklySchedule: standardSchedule,
+      dateOverrides: []
+    },
+    {
+      userId: michael._id,
+      timezone: 'Europe/London',
+      weeklySchedule: standardSchedule,
+      dateOverrides: []
+    }
+  ]);
+
+  console.log('[Seed] Seeding Event Types (Cal.com-style scheduling)...');
+  const eventTypes = await EventType.insertMany([
+    {
+      userId: elena._id,
+      title: 'Frontend Architecture & Live Coding',
+      slug: 'frontend-live-coding',
+      description: '45-minute technical screen focusing on React, TypeScript, state management, and real-time UI performance.',
+      duration: 45,
+      color: '#3B82F6',
+      locationType: 'interviewhub_video',
+      isActive: true,
+      bufferBefore: 10,
+      bufferAfter: 15,
+      minimumNoticeHours: 4,
+      maxBookingHorizonDays: 30,
+      slotIntervalMinutes: 30,
+      dailyLimit: 6,
+      challengeId: twoSum._id,
+      bookingQuestions: [
+        { id: 'q1', label: 'GitHub Profile or Portfolio URL', type: 'url', required: true },
+        { id: 'q2', label: 'Years of React Experience', type: 'text', required: true },
+        { id: 'q3', label: 'Any accessibility or accommodation requests?', type: 'textarea', required: false }
+      ]
+    },
+    {
+      userId: elena._id,
+      title: 'System Design & Distributed Scalability',
+      slug: 'system-design',
+      description: '60-minute deep architectural session covering distributed cache strategies, database sharding, and fault tolerance.',
+      duration: 60,
+      color: '#8B5CF6',
+      locationType: 'interviewhub_video',
+      isActive: true,
+      bufferBefore: 15,
+      bufferAfter: 15,
+      minimumNoticeHours: 8,
+      maxBookingHorizonDays: 21,
+      slotIntervalMinutes: 60,
+      dailyLimit: 4,
+      challengeId: lruCache._id,
+      bookingQuestions: [
+        { id: 'q1', label: 'Preferred System Diagram Tool', type: 'text', required: false },
+        { id: 'q2', label: 'Primary Backend Language (Go, Java, Node, Python)', type: 'text', required: true }
+      ]
+    },
+    {
+      userId: james._id,
+      title: 'Core Algorithms & Data Structures',
+      slug: 'algorithms-screen',
+      description: '45-minute technical evaluation on graph traversals, dynamic programming, and algorithmic space-time optimization.',
+      duration: 45,
+      color: '#10B981',
+      locationType: 'interviewhub_video',
+      isActive: true,
+      bufferBefore: 10,
+      bufferAfter: 10,
+      minimumNoticeHours: 4,
+      maxBookingHorizonDays: 30,
+      slotIntervalMinutes: 30,
+      dailyLimit: 5,
+      challengeId: mergeIntervals._id,
+      bookingQuestions: [
+        { id: 'q1', label: 'Target Engineering Level (L4 / L5 / L6)', type: 'select', required: true, options: ['Mid-level (L4)', 'Senior (L5)', 'Staff (L6)'] }
+      ]
+    }
+  ]);
 
   console.log('[Seed] Seeding Interviews...');
   const now = new Date();
@@ -549,7 +677,7 @@ The functions \`get\` and \`put\` must each run in O(1) average time complexity.
   ]);
 
   console.log('[Seed] Seeding Analytics Events...');
-  const eventTypes = [
+  const analyticsEventTypes = [
     'user_registered', 'user_logged_in', 'interview_scheduled',
     'interview_started', 'interview_completed', 'evaluation_submitted', 'code_executed'
   ];
@@ -559,7 +687,7 @@ The functions \`get\` and \`put\` must each run in O(1) average time complexity.
     const occurredAt = new Date(now.getTime() - randomDay * 24 * 60 * 60 * 1000 - Math.random() * 3600000);
     await AnalyticsEvent.create({
       actorId: [alex._id, sarah._id, elena._id, james._id, rachel._id][i % 5],
-      eventType: eventTypes[i % eventTypes.length],
+      eventType: analyticsEventTypes[i % analyticsEventTypes.length],
       interviewId: [liveInterview._id, completedInterview1._id, completedInterview2._id][i % 3],
       occurredAt,
       metadata: { seedEvent: true }

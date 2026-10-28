@@ -185,6 +185,48 @@ export const useAuthStore = create((set, get) => ({
     }
   },
 
+  requestRegisterOtp: async (userData) => {
+    set({ isLoading: true, error: null });
+    try {
+      const res = await api.post('/auth/register-otp', userData);
+      set({ isLoading: false });
+      return { success: true, message: res.data?.message };
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Failed to dispatch verification code';
+      set({ error: msg, isLoading: false });
+      return { success: false, error: msg };
+    }
+  },
+
+  verifyRegisterOtp: async (email, otp) => {
+    set({ isLoading: true, error: null });
+    try {
+      const res = await api.post('/auth/verify-otp', { email, otp });
+      if (res.data?.data?.token) {
+        const { token, user } = res.data.data;
+        localStorage.setItem('interviewhub_token', token);
+        localStorage.setItem('interviewhub_user', JSON.stringify(user));
+        set({ user, token, isAuthenticated: true, isLoading: false });
+        return { success: true, user };
+      }
+      throw new Error(res.data?.message || 'Verification failed');
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Invalid or expired verification code';
+      set({ error: msg, isLoading: false });
+      return { success: false, error: msg };
+    }
+  },
+
+  resendOtp: async (email, purpose = 'registration') => {
+    try {
+      const res = await api.post('/auth/resend-otp', { email, purpose });
+      return { success: true, message: res.data?.message };
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Failed to resend code';
+      return { success: false, error: msg };
+    }
+  },
+
   setTokenAndUser: (token, user) => {
     localStorage.setItem('interviewhub_token', token);
     localStorage.setItem('interviewhub_user', JSON.stringify(user));

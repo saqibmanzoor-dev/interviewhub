@@ -14,6 +14,10 @@ import codeExecutionRoutes from './routes/codeExecutionRoutes.js';
 import evaluationRoutes from './routes/evaluationRoutes.js';
 import analyticsRoutes from './routes/analyticsRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
+import eventTypeRoutes from './routes/eventTypeRoutes.js';
+import availabilityRoutes from './routes/availabilityRoutes.js';
+import bookingRoutes from './routes/bookingRoutes.js';
+import adminRoutes from './routes/adminRoutes.js';
 
 configurePassport();
 
@@ -44,6 +48,10 @@ const authLimiter = rateLimit({
 app.use('/api/v1/auth', authLimiter, authRoutes);
 app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/interviews', interviewRoutes);
+app.use('/api/v1/event-types', eventTypeRoutes);
+app.use('/api/v1/availability', availabilityRoutes);
+app.use('/api/v1/bookings', bookingRoutes);
+app.use('/api/v1/admin', adminRoutes);
 app.use('/api/v1/challenges', challengeRoutes);
 app.use('/api/v1/code-executions', codeExecutionRoutes);
 app.use('/api/v1/evaluations', evaluationRoutes);
