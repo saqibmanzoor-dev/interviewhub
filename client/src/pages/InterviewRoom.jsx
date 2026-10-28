@@ -95,11 +95,68 @@ export default function InterviewRoom() {
     : (interview?.interviewerIds?.[0]?.name || interview?.createdBy?.name || 'Lead Interviewer');
   const remoteParticipantRoleLabel = isHost ? 'Candidate' : 'Interviewer (Host)';
 
-  // References
+  // WebRTC State & References
+  const [hasRemoteStream, setHasRemoteStream] = useState(false);
+  const [remotePeerInfo, setRemotePeerInfo] = useState(null);
   const localVideoRef = useRef(null);
+  const remoteVideoRef = useRef(null);
   const localStreamRef = useRef(null);
   const chatBottomRef = useRef(null);
   const socketRef = useRef(null);
+  const peerConnectionRef = useRef(null);
+
+  const RTC_CONFIG = {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' }
+    ]
+  };
+
+  const createPeerConnection = (targetSocketId) => {
+    if (peerConnectionRef.current) {
+      try {
+        peerConnectionRef.current.close();
+      } catch (e) {}
+    }
+
+    const pc = new RTCPeerConnection(RTC_CONFIG);
+    peerConnectionRef.current = pc;
+
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => {
+        try {
+          pc.addTrack(track, localStreamRef.current);
+        } catch (e) {}
+      });
+    }
+
+    pc.ontrack = (event) => {
+      console.log('[WebRTC] Received remote track:', event.track.kind);
+      if (remoteVideoRef.current && event.streams[0]) {
+        remoteVideoRef.current.srcObject = event.streams[0];
+        setHasRemoteStream(true);
+      }
+    };
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate && socketRef.current && targetSocketId) {
+        socketRef.current.emit('webrtc:ice-candidate', {
+          targetSocketId,
+          candidate: event.candidate
+        });
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      console.log('[WebRTC] Peer connection state:', pc.connectionState);
+      if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+        setHasRemoteStream(false);
+      }
+    };
+
+    return pc;
+  };
 
   // 1. Fetch Interview & Challenge Data
   useEffect(() => {
@@ -120,6 +177,12 @@ export default function InterviewRoom() {
     return () => {
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach(track => track.stop());
+      }
+      if (peerConnectionRef.current) {
+        try {
+          peerConnectionRef.current.close();
+        } catch (e) {}
+        peerConnectionRef.current = null;
       }
     };
   }, []);
@@ -142,15 +205,21 @@ export default function InterviewRoom() {
     });
 
     // Room initial state from server
-    s.on('room:state', (state) => {
+    s.on('room:state', async (state) => {
       if (state.participants?.length) {
         setParticipants(state.participants.map(p => ({
           id: p.userId || p.socketId,
+          socketId: p.socketId,
           name: p.name,
           role: p.role,
           mic: !p.mediaState?.audioMuted,
           video: !p.mediaState?.videoOff
         })));
+
+        const otherPeer = state.participants.find(p => p.socketId !== s.id);
+        if (otherPeer) {
+          setRemotePeerInfo(otherPeer);
+        }
       }
       if (state.activeCode && !code) {
         setCode(state.activeCode);
@@ -172,11 +241,13 @@ export default function InterviewRoom() {
       }
     });
 
-    s.on('room:participant-joined', (participant) => {
+    s.on('room:participant-joined', async (participant) => {
+      setRemotePeerInfo(participant);
       setParticipants(prev => {
         if (prev.some(p => p.id === (participant.userId || participant.socketId))) return prev;
         return [...prev, {
           id: participant.userId || participant.socketId,
+          socketId: participant.socketId,
           name: participant.name,
           role: participant.role,
           mic: !participant.mediaState?.audioMuted,
@@ -191,10 +262,76 @@ export default function InterviewRoom() {
         text: `${participant.name} (${participant.role}) joined the interview.`,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       }]);
+
+      // When another peer joins, initiate WebRTC Offer
+      if (participant.socketId && participant.socketId !== s.id) {
+        try {
+          const pc = createPeerConnection(participant.socketId);
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          s.emit('webrtc:offer', {
+            targetSocketId: participant.socketId,
+            sdp: offer
+          });
+        } catch (err) {
+          console.error('[WebRTC] Offer initiation error:', err);
+        }
+      }
     });
 
-    s.on('room:participant-left', ({ userId }) => {
-      setParticipants(prev => prev.filter(p => p.id !== userId));
+    // WebRTC Signaling: Receiving Offer
+    s.on('webrtc:offer', async ({ senderSocketId, sdp }) => {
+      console.log('[WebRTC] Incoming offer from:', senderSocketId);
+      try {
+        const pc = createPeerConnection(senderSocketId);
+        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        s.emit('webrtc:answer', {
+          targetSocketId: senderSocketId,
+          sdp: answer
+        });
+      } catch (err) {
+        console.error('[WebRTC] Error handling offer:', err);
+      }
+    });
+
+    // WebRTC Signaling: Receiving Answer
+    s.on('webrtc:answer', async ({ senderSocketId, sdp }) => {
+      console.log('[WebRTC] Incoming answer from:', senderSocketId);
+      try {
+        if (peerConnectionRef.current) {
+          await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
+        }
+      } catch (err) {
+        console.error('[WebRTC] Error handling answer:', err);
+      }
+    });
+
+    // WebRTC Signaling: Receiving ICE candidate
+    s.on('webrtc:ice-candidate', async ({ senderSocketId, candidate }) => {
+      try {
+        if (peerConnectionRef.current && candidate) {
+          await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+        }
+      } catch (err) {
+        console.error('[WebRTC] Error adding ICE candidate:', err);
+      }
+    });
+
+    s.on('room:participant-left', ({ userId, socketId }) => {
+      setParticipants(prev => prev.filter(p => p.id !== userId && p.socketId !== socketId));
+      setHasRemoteStream(false);
+      setRemotePeerInfo(null);
+      if (peerConnectionRef.current) {
+        try {
+          peerConnectionRef.current.close();
+        } catch (e) {}
+        peerConnectionRef.current = null;
+      }
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = null;
+      }
     });
 
     s.on('editor:change', (data) => {
@@ -229,6 +366,12 @@ export default function InterviewRoom() {
     });
 
     return () => {
+      if (peerConnectionRef.current) {
+        try {
+          peerConnectionRef.current.close();
+        } catch (e) {}
+        peerConnectionRef.current = null;
+      }
       s.emit('room:leave');
       s.off('room:state');
       s.off('room:participant-joined');
@@ -236,6 +379,9 @@ export default function InterviewRoom() {
       s.off('editor:change');
       s.off('chat:message');
       s.off('media:state-changed');
+      s.off('webrtc:offer');
+      s.off('webrtc:answer');
+      s.off('webrtc:ice-candidate');
     };
   }, [meetingCode, interview?._id, user]);
 
@@ -588,26 +734,39 @@ export default function InterviewRoom() {
 
               {/* Tile 2: Remote Peer Video Tile */}
               <div className="flex-1 rounded-2xl bg-slate-900 border border-slate-800 relative overflow-hidden flex flex-col items-center justify-center shadow-lg group">
-                <div className="flex flex-col items-center justify-center">
-                  <div className="relative">
-                    <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-cyan-600 via-blue-600 to-indigo-500 flex items-center justify-center text-white font-bold text-2xl shadow-xl shadow-cyan-500/20 ring-4 ring-slate-800">
-                      {remoteParticipantName.slice(0, 2).toUpperCase()}
+                <video
+                  ref={remoteVideoRef}
+                  autoPlay
+                  playsInline
+                  className={`w-full h-full object-cover rounded-2xl ${hasRemoteStream ? 'block' : 'hidden'}`}
+                />
+
+                {!hasRemoteStream && (
+                  <div className="flex flex-col items-center justify-center">
+                    <div className="relative">
+                      <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-cyan-600 via-blue-600 to-indigo-500 flex items-center justify-center text-white font-bold text-2xl shadow-xl shadow-cyan-500/20 ring-4 ring-slate-800">
+                        {(remotePeerInfo?.name || remoteParticipantName).slice(0, 2).toUpperCase()}
+                      </div>
+                      <div className="absolute -bottom-1 -right-1 p-1 rounded-full bg-emerald-500 text-slate-950">
+                        <Mic className="w-3.5 h-3.5" />
+                      </div>
                     </div>
-                    <div className="absolute -bottom-1 -right-1 p-1 rounded-full bg-emerald-500 text-slate-950">
-                      <Mic className="w-3.5 h-3.5" />
+                    <div className="mt-2.5 text-center">
+                      <span className="text-xs font-semibold text-white">{remotePeerInfo?.name || remoteParticipantName}</span>
+                      <span className="block text-[10px] text-slate-400">
+                        {remotePeerInfo ? (remotePeerInfo.role === 'candidate' ? 'Candidate' : 'Interviewer (Host)') : 'Waiting for remote peer...'}
+                      </span>
                     </div>
                   </div>
-                  <div className="mt-2.5 text-center">
-                    <span className="text-xs font-semibold text-white">{remoteParticipantName}</span>
-                    <span className="block text-[10px] text-slate-400">{remoteParticipantRoleLabel}</span>
-                  </div>
-                </div>
+                )}
 
                 {/* Remote Participant Bottom Bar */}
                 <div className="absolute bottom-2.5 left-2.5 px-2 py-1 rounded-lg bg-black/60 backdrop-blur-md text-[11px] font-medium text-slate-200 flex items-center gap-1.5 border border-white/10">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                  <span>{remoteParticipantName}</span>
-                  <span className="text-[10px] text-slate-400 ml-1">[{remoteParticipantRoleLabel}]</span>
+                  <span className={`w-2 h-2 rounded-full ${remotePeerInfo || hasRemoteStream ? 'bg-emerald-400 animate-ping' : 'bg-amber-400'}`} />
+                  <span>{remotePeerInfo?.name || remoteParticipantName}</span>
+                  <span className="text-[10px] text-slate-400 ml-1">
+                    [{remotePeerInfo ? (remotePeerInfo.role === 'candidate' ? 'Candidate' : 'Host') : remoteParticipantRoleLabel}]
+                  </span>
                 </div>
               </div>
 
@@ -630,7 +789,7 @@ export default function InterviewRoom() {
                     onChange={(e) => {
                       setSelectedLanguage(e.target.value);
                       if (socketRef.current) {
-                        socketRef.current.emit('code_update', { meetingCode, code, language: e.target.value });
+                        socketRef.current.emit('editor:change', { code, language: e.target.value });
                       }
                     }}
                     className="bg-slate-900 border border-slate-700/80 rounded-md px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
