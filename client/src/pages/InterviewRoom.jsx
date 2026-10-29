@@ -698,7 +698,7 @@ export default function InterviewRoom() {
         <Group orientation="horizontal" className="h-full w-full">
           
           {/* Left Pane: Responsive Video Grid + Bottom Drawer (Chat/Participants/Evaluation) */}
-          <Panel defaultSize={38} minSize={25} maxSize={55} className="flex flex-col bg-zinc-950 p-2 gap-2 border-r border-zinc-800/80">
+          <Panel defaultSize="40%" minSize="25%" maxSize="60%" className="h-full flex flex-col bg-zinc-950 p-2 gap-2 border-r border-zinc-800/80 min-h-0">
             
             {/* Video Container with Sliding Control Bar on Hover */}
             <div className="h-64 sm:h-72 shrink-0 grid grid-cols-2 gap-2 relative group overflow-hidden rounded-xl bg-zinc-900/60 border border-zinc-800/80 p-2">
@@ -815,7 +815,7 @@ export default function InterviewRoom() {
             </div>
 
             {/* Left Pane Drawer: Tabbed Panel for Chat, Participants, Evaluation */}
-            <div className="flex-1 rounded-xl bg-zinc-900/60 border border-zinc-800/80 flex flex-col overflow-hidden">
+            <div className="flex-1 rounded-xl bg-zinc-900/60 border border-zinc-800/80 flex flex-col overflow-hidden min-h-0">
               {/* Tab Navigation Header */}
               <div className="h-10 px-3 bg-zinc-950/60 border-b border-zinc-800/80 flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-1">
@@ -1009,7 +1009,7 @@ export default function InterviewRoom() {
           </Separator>
 
           {/* Right Pane: Collapsible Question Panel + Monaco Editor (vs-dark) + Fixed Bottom Execution Bar */}
-          <Panel defaultSize={62} minSize={45} className="flex flex-col bg-zinc-950 overflow-hidden relative">
+          <Panel defaultSize="60%" minSize="40%" className="h-full flex flex-col bg-zinc-950 overflow-hidden relative min-h-0">
             
             {/* Top Collapsible Challenge Statement Panel */}
             <div className="border-b border-zinc-800/80 bg-zinc-900/60 transition-all duration-200">
