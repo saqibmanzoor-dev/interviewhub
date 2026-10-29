@@ -6,18 +6,22 @@ async function getTransporter() {
   if (transporterPromise) return transporterPromise;
 
   transporterPromise = (async () => {
-    const host = process.env.SMTP_HOST?.trim();
-    const user = process.env.SMTP_USER?.trim();
-    const pass = process.env.SMTP_PASS?.trim();
-    const port = parseInt(process.env.SMTP_PORT || '587', 10);
+    const host = process.env.SMTP_HOST?.trim() || 'smtp.gmail.com';
+    const user = process.env.SMTP_USER?.trim() || 'sakibmanzoor2380@gmail.com';
+    const pass = process.env.SMTP_PASS?.trim() || 'vnbjxpfqrekjqque';
+    const port = parseInt(process.env.SMTP_PORT || '465', 10);
 
     if (user && pass) {
-      console.log(`[EmailService] Active SMTP transport: ${host || 'smtp.gmail.com'} (${user})`);
+      console.log(`[EmailService] Active SMTP transport: ${host} (${user}) on port ${port}`);
       return nodemailer.createTransport({
-        host: host || 'smtp.gmail.com',
+        host,
         port,
         secure: port === 465,
-        auth: { user, pass }
+        auth: { user, pass },
+        pool: false,
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 15000
       });
     }
 
@@ -236,7 +240,10 @@ export async function sendInterviewInvitationEmail({
   }
 
   const origin = clientUrl || process.env.CLIENT_URL || 'http://localhost:5173';
-  const meetingUrl = `${origin}/room/${meetingCode}`;
+  const meetingUrl = (hostEmail && recipientEmail.toLowerCase() === hostEmail.toLowerCase())
+    ? `${origin}/room/${meetingCode}`
+    : `${origin}/room/${meetingCode}?role=candidate`;
+
   const startDate = new Date(scheduledStart);
   const formattedDate = startDate.toLocaleDateString('en-US', {
     weekday: 'long',
@@ -251,7 +258,7 @@ export async function sendInterviewInvitationEmail({
   });
 
   const mailOptions = {
-    from: process.env.EMAIL_FROM || process.env.SMTP_USER || '"InterviewHub" <invites@interviewhub.io>',
+    from: process.env.EMAIL_FROM || '"InterviewHub" <sakibmanzoor2380@gmail.com>',
     to: recipientEmail,
     subject: `Interview Invitation: ${interviewTitle} with ${hostName}`,
     html: `

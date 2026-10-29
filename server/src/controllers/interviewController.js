@@ -141,34 +141,42 @@ export async function createInterview(req, res, next) {
     const clientUrl = req.headers.origin || process.env.CLIENT_URL;
 
     if (candEmail) {
-      sendInterviewInvitationEmail({
-        recipientEmail: candEmail,
-        recipientName: candName,
-        hostName,
-        hostEmail,
-        interviewTitle: title,
-        scheduledStart: start,
-        scheduledEnd: end,
-        durationMinutes: Number(durationMinutes) || 60,
-        meetingCode,
-        clientUrl
-      }).catch(err => console.error('[InterviewController] Candidate email error:', err.message));
+      try {
+        await sendInterviewInvitationEmail({
+          recipientEmail: candEmail,
+          recipientName: candName,
+          hostName,
+          hostEmail,
+          interviewTitle: title,
+          scheduledStart: start,
+          scheduledEnd: end,
+          durationMinutes: Number(durationMinutes) || 60,
+          meetingCode,
+          clientUrl
+        });
+      } catch (err) {
+        console.error('[InterviewController] Candidate email error:', err.message);
+      }
     }
 
     // Send confirmation copy to host if different email
     if (hostEmail && hostEmail.toLowerCase() !== candEmail?.toLowerCase()) {
-      sendInterviewInvitationEmail({
-        recipientEmail: hostEmail,
-        recipientName: hostName,
-        hostName,
-        hostEmail,
-        interviewTitle: `Confirmation: ${title}`,
-        scheduledStart: start,
-        scheduledEnd: end,
-        durationMinutes: Number(durationMinutes) || 60,
-        meetingCode,
-        clientUrl
-      }).catch(err => console.error('[InterviewController] Host confirmation email error:', err.message));
+      try {
+        await sendInterviewInvitationEmail({
+          recipientEmail: hostEmail,
+          recipientName: hostName,
+          hostName,
+          hostEmail,
+          interviewTitle: `Confirmation: ${title}`,
+          scheduledStart: start,
+          scheduledEnd: end,
+          durationMinutes: Number(durationMinutes) || 60,
+          meetingCode,
+          clientUrl
+        });
+      } catch (err) {
+        console.error('[InterviewController] Host confirmation email error:', err.message);
+      }
     }
 
     res.status(201).json({ success: true, message: 'Interview scheduled successfully. Invitation email dispatched.', data: populated });

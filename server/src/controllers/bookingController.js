@@ -140,35 +140,43 @@ export async function createPublicBooking(req, res, next) {
 
     // Dispatch confirmation email with .ics attachment
     const clientUrl = req.headers.origin || process.env.CLIENT_URL;
-    sendBookingConfirmationEmail({
-      recipientEmail: candidateEmail,
-      recipientName: candidateName,
-      hostName: host.name,
-      hostEmail: host.email,
-      eventTitle: eventType.title,
-      scheduledStart: start,
-      scheduledEnd: end,
-      durationMinutes: eventType.duration || 45,
-      meetingCode,
-      clientUrl,
-      answers: bookingAnswers
-    }).catch(err => console.error('[BookingController] Email error:', err.message));
-
-    // Also notify host
-    if (host.email && host.email.toLowerCase() !== candidateEmail.toLowerCase()) {
-      sendBookingConfirmationEmail({
-        recipientEmail: host.email,
-        recipientName: host.name,
+    try {
+      await sendBookingConfirmationEmail({
+        recipientEmail: candidateEmail,
+        recipientName: candidateName,
         hostName: host.name,
         hostEmail: host.email,
-        eventTitle: `New Booking: ${eventType.title} with ${candidateName}`,
+        eventTitle: eventType.title,
         scheduledStart: start,
         scheduledEnd: end,
         durationMinutes: eventType.duration || 45,
         meetingCode,
         clientUrl,
         answers: bookingAnswers
-      }).catch(err => console.error('[BookingController] Host notify error:', err.message));
+      });
+    } catch (err) {
+      console.error('[BookingController] Email error:', err.message);
+    }
+
+    // Also notify host
+    if (host.email && host.email.toLowerCase() !== candidateEmail.toLowerCase()) {
+      try {
+        await sendBookingConfirmationEmail({
+          recipientEmail: host.email,
+          recipientName: host.name,
+          hostName: host.name,
+          hostEmail: host.email,
+          eventTitle: `New Booking: ${eventType.title} with ${candidateName}`,
+          scheduledStart: start,
+          scheduledEnd: end,
+          durationMinutes: eventType.duration || 45,
+          meetingCode,
+          clientUrl,
+          answers: bookingAnswers
+        });
+      } catch (err) {
+        console.error('[BookingController] Host notify error:', err.message);
+      }
     }
 
     res.status(201).json({
