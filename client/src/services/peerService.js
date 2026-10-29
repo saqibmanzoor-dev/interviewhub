@@ -159,14 +159,37 @@ export class PeerRoomService {
 
     if (call.peerConnection) {
       const pc = call.peerConnection;
+      const optimizeBitrate = () => {
+        try {
+          if (pc.getSenders) {
+            pc.getSenders().forEach((sender) => {
+              if (sender.track && sender.track.kind === 'video' && sender.getParameters) {
+                const params = sender.getParameters();
+                if (params && params.encodings && params.encodings.length > 0) {
+                  params.encodings[0].maxBitrate = 550000; // 550 kbps for smooth low-latency 30fps
+                  params.encodings[0].maxFramerate = 30;
+                  sender.setParameters(params).catch(() => {});
+                }
+              }
+            });
+          }
+        } catch (e) {}
+      };
+
       pc.addEventListener('iceconnectionstatechange', () => {
         console.log('[PeerRoom] ICE state:', pc.iceConnectionState);
+        if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+          setTimeout(optimizeBitrate, 500);
+        }
         if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
           this.callInitiated = false;
         }
       });
       pc.addEventListener('connectionstatechange', () => {
         console.log('[PeerRoom] Connection state:', pc.connectionState);
+        if (pc.connectionState === 'connected') {
+          setTimeout(optimizeBitrate, 500);
+        }
       });
     }
 

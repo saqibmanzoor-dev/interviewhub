@@ -692,7 +692,21 @@ export default function InterviewRoom() {
           mic: p.mic
         }));
 
-        setParticipants([mySelf, ...mappedOthers]);
+        const newList = [mySelf, ...mappedOthers];
+        setParticipants(prev => {
+          if (
+            prev.length === newList.length &&
+            prev.every((p, i) =>
+              p.id === newList[i].id &&
+              p.name === newList[i].name &&
+              p.video === newList[i].video &&
+              p.mic === newList[i].mic
+            )
+          ) {
+            return prev;
+          }
+          return newList;
+        });
 
         if (others.length > 0) {
           const firstOther = others[0];
@@ -734,15 +748,16 @@ export default function InterviewRoom() {
     }
   }, [cleanCode, meetingCode, currentUserName, currentUserRoleLabel, isMicOn, isCameraOn, user?.avatar]);
 
-  // Periodic heartbeat & room state sync (runs every 1800ms)
+  // Periodic heartbeat & room state sync (smooth 3s/4.5s backoff to eliminate CPU & network lag)
   useEffect(() => {
     if (!meetingCode) return;
     triggerRoomSync();
+    const pollInterval = hasRemoteStream ? 4500 : 3000;
     const interval = setInterval(() => {
       triggerRoomSync();
-    }, 1800);
+    }, pollInterval);
     return () => clearInterval(interval);
-  }, [triggerRoomSync, meetingCode]);
+  }, [triggerRoomSync, meetingCode, hasRemoteStream]);
 
   // PeerJS Cloud WebRTC Signaling (Unique Collision-Free Peer IDs + TURN Relay)
   useEffect(() => {
@@ -896,15 +911,28 @@ export default function InterviewRoom() {
     try {
       if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
         let stream = null;
+        const audioConstraints = {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        };
         try {
-          // Attempt standard mobile front-facing camera constraints
+          // Low-latency mobile & desktop constraints (capped at 480p @ 24fps to prevent cellular bufferbloat)
           stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
-            audio: true
+            video: {
+              facingMode: 'user',
+              width: { ideal: 640, max: 854 },
+              height: { ideal: 480, max: 480 },
+              frameRate: { ideal: 24, max: 30 }
+            },
+            audio: audioConstraints
           });
         } catch (mobileErr) {
-          // Fall back to standard audio/video constraints
-          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+          // Fall back to standard capped constraints
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 24, max: 30 } },
+            audio: audioConstraints
+          });
         }
 
         localStreamRef.current = stream;
