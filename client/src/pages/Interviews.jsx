@@ -94,10 +94,10 @@ export default function Interviews() {
   };
 
   const handleCopyLink = (code) => {
-    const url = `${window.location.origin}/room/${code}`;
+    const url = `${window.location.origin}/room/${code}?role=candidate`;
     navigator.clipboard.writeText(url);
     setCopiedCode(code);
-    toast.success('Meeting invitation URL copied to clipboard');
+    toast.success('Candidate invitation URL copied to clipboard');
     setTimeout(() => setCopiedCode(null), 2500);
   };
 
@@ -166,7 +166,9 @@ export default function Interviews() {
       const meetingCode = res.data?.data?.meetingCode;
       if (meetingCode) {
         toast.success(`Instant session ${meetingCode} launched`);
-        navigate(`/room/${meetingCode}`);
+        const clean = meetingCode.trim().toLowerCase();
+        sessionStorage.setItem('ihub_host_' + clean, 'true');
+        navigate(`/room/${meetingCode}`, { state: { isHost: true } });
         return;
       }
     } catch (err) {
@@ -181,7 +183,9 @@ export default function Interviews() {
     const p3 = Math.random().toString(36).substring(2, 5);
     const meetingCode = `${p1}-${p2}-${p3}`;
     toast.success(`Instant session ${meetingCode} launched`);
-    navigate(`/room/${meetingCode}`);
+    const clean = meetingCode.trim().toLowerCase();
+    sessionStorage.setItem('ihub_host_' + clean, 'true');
+    navigate(`/room/${meetingCode}`, { state: { isHost: true } });
   };
 
   const filtered = interviews.filter((item) => {
@@ -383,6 +387,8 @@ export default function Interviews() {
 
                           <Link
                             to={`/room/${item.meetingCode}`}
+                            state={{ isHost: true }}
+                            onClick={() => sessionStorage.setItem('ihub_host_' + (item.meetingCode || '').trim().toLowerCase(), 'true')}
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-medium text-xs shadow-sm hover:shadow-violet-600/25 transition-all"
                           >
                             <Play className="w-3 h-3 fill-current" />

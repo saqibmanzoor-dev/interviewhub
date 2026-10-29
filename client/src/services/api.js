@@ -16,12 +16,11 @@ api.interceptors.request.use((config) => {
     try {
       const storedUserStr = localStorage.getItem('interviewhub_user');
       const u = storedUserStr ? JSON.parse(storedUserStr) : null;
-      token = `demo_token_${u?.role || 'admin'}_${Date.now()}`;
-      localStorage.setItem('interviewhub_token', token);
-    } catch (e) {
-      token = `demo_token_admin_${Date.now()}`;
-      localStorage.setItem('interviewhub_token', token);
-    }
+      if (u) {
+        token = `demo_token_${u?.role || 'candidate'}_${Date.now()}`;
+        localStorage.setItem('interviewhub_token', token);
+      }
+    } catch (e) {}
   }
 
   if (token && token !== 'null' && token !== 'undefined') {

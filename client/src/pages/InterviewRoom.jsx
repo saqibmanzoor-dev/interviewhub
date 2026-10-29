@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import Editor from '@monaco-editor/react';
 import { 
   Mic, 
@@ -132,15 +132,28 @@ export default function InterviewRoom() {
   const [evalSubmitting, setEvalSubmitting] = useState(false);
   const [evalSuccess, setEvalSuccess] = useState(false);
 
-  // Dynamic host & participant resolution based on authenticated user
-  const isHost = Boolean(
-    (interview?.createdBy && (interview.createdBy === user?._id || interview.createdBy?._id === user?._id)) ||
-    (interview?.interviewerIds && interview.interviewerIds.some(i => (i?._id || i) === user?._id)) ||
-    (!interview && (user?.role === 'admin' || user?.role === 'interviewer' || user?.role === 'recruiter'))
+  const [searchParams] = useSearchParams();
+  const location = useLocation();
+
+  const cleanCode = (meetingCode || '').trim().toLowerCase();
+  const isExplicitCandidate = searchParams.get('role') === 'candidate';
+  const isExplicitHost = searchParams.get('role') === 'interviewer' || searchParams.get('role') === 'host';
+  const isSessionCreator = sessionStorage.getItem('ihub_host_' + cleanCode) === 'true' || location.state?.isHost === true;
+
+  // Manual role state (allows toggling role in-room)
+  const [manualRole, setManualRole] = useState(null);
+
+  const isHost = manualRole ? manualRole === 'interviewer' : Boolean(
+    !isExplicitCandidate && (
+      isExplicitHost ||
+      isSessionCreator ||
+      (interview?.createdBy && (interview.createdBy === user?._id || interview.createdBy?._id === user?._id)) ||
+      (interview?.interviewerIds && interview.interviewerIds.some(i => (i?._id || i) === user?._id))
+    )
   );
 
   const [guestName, setGuestName] = useState(() => localStorage.getItem('interview_guest_name') || '');
-  const [showGuestModal, setShowGuestModal] = useState(() => !user && !localStorage.getItem('interview_guest_name'));
+  const [showGuestModal, setShowGuestModal] = useState(() => !isHost && (!user || user.role === 'candidate') && !localStorage.getItem('interview_guest_name'));
   const [guestInputName, setGuestInputName] = useState('');
 
   // WebRTC State & References
@@ -1038,9 +1051,10 @@ export default function InterviewRoom() {
   };
 
   const copyMeetingLink = () => {
-    navigator.clipboard.writeText(`${window.location.origin}/room/${meetingCode}`);
+    const url = `${window.location.origin}/room/${meetingCode}?role=candidate`;
+    navigator.clipboard.writeText(url);
     setCopiedCode(true);
-    toast.success('Room link copied');
+    toast.success('Candidate invitation link copied');
     setTimeout(() => setCopiedCode(false), 2500);
   };
 
@@ -1077,6 +1091,27 @@ export default function InterviewRoom() {
             <span className="font-mono text-[11px] text-zinc-400 bg-zinc-900 border border-zinc-800 px-2 py-1 rounded hidden sm:inline-block">
               {meetingCode}
             </span>
+
+            {/* In-Room Role Switcher */}
+            <button
+              onClick={() => {
+                const nextRole = isHost ? 'candidate' : 'interviewer';
+                setManualRole(nextRole);
+                if (peerRoomRef.current) {
+                  peerRoomRef.current.isHost = nextRole === 'interviewer';
+                  peerRoomRef.current.destroyPeerOnly();
+                  peerRoomRef.current.init();
+                }
+                toast.info(`Switched role to ${nextRole === 'interviewer' ? 'Interviewer' : 'Candidate'}`);
+              }}
+              className="hidden md:flex items-center gap-1.5 px-2 py-1 rounded bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 text-[11px] text-zinc-300 hover:text-white transition-colors cursor-pointer"
+              title="Click to toggle role between Interviewer and Candidate"
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${isHost ? 'bg-violet-400' : 'bg-emerald-400'}`} />
+              <span className="capitalize">{currentUserRoleLabel}</span>
+              <span className="text-[9px] text-zinc-500 font-normal">(switch)</span>
+            </button>
+
             <button
               onClick={copyMeetingLink}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-xs font-medium transition-all shadow-md shadow-violet-600/25 cursor-pointer shrink-0"
