@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { errorHandler } from './middleware/errorHandler.js';
+import { ensureDBConnected } from './config/db.js';
 
 import passport, { configurePassport } from './config/passport.js';
 
@@ -44,6 +45,9 @@ const authLimiter = rateLimit({
   max: 150,
   message: { success: false, message: 'Too many requests from this IP. Please try again after 15 minutes.' }
 });
+
+// Ensure MongoDB connection is active before processing database operations
+app.use('/api/v1', ensureDBConnected);
 
 app.use('/api/v1/auth', authLimiter, authRoutes);
 app.use('/api/v1/users', userRoutes);
