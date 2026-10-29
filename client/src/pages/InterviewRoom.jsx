@@ -1223,10 +1223,10 @@ export default function InterviewRoom() {
                       <Users className="w-5 h-5 animate-pulse" />
                     </div>
                     <span className="text-xs font-semibold text-zinc-200">
-                      Waiting for {isHost ? 'Candidate' : 'Interviewer'}
+                      Waiting for Second Participant
                     </span>
                     <span className="text-[11px] text-zinc-400 mt-1 max-w-[190px]">
-                      Share room link with second person to join
+                      Share room link with your peer or candidate to connect
                     </span>
                     <button
                       onClick={copyMeetingLink}
@@ -1248,7 +1248,7 @@ export default function InterviewRoom() {
                         {remotePeerInfo?.name || remoteParticipantName}
                       </span>
                       <span className="text-[10px] text-zinc-400 block capitalize">
-                        {remotePeerInfo ? (remotePeerInfo.role === 'candidate' ? 'Second Candidate' : 'Interviewer') : 'Waiting for stream...'}
+                        {remotePeerInfo ? (remotePeerInfo.role === 'candidate' ? 'Candidate' : 'Interviewer') : 'Connecting stream...'}
                       </span>
                     </div>
                   </div>
@@ -1256,7 +1256,7 @@ export default function InterviewRoom() {
 
                 <div className="absolute bottom-2 left-2 px-2 py-0.5 rounded bg-black/70 backdrop-blur-md text-[10px] font-medium text-zinc-200 flex items-center gap-1.5 border border-white/10">
                   <span className={`w-1.5 h-1.5 rounded-full ${remotePeerInfo || hasRemoteStream ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-                  <span>{remotePeerInfo?.name || (isHost ? 'Second Candidate (Waiting...)' : 'Lead Interviewer')}</span>
+                  <span>{remotePeerInfo ? `${remotePeerInfo.name} (${remotePeerInfo.role === 'candidate' ? 'Candidate' : 'Interviewer'})` : 'Second Participant (Waiting...)'}</span>
                 </div>
               </div>
 
