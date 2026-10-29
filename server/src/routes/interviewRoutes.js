@@ -7,17 +7,15 @@ import {
   joinInterview,
   endInterview
 } from '../controllers/interviewController.js';
-import { protect, authorizeRoles } from '../middleware/authMiddleware.js';
+import { protect, protectOptional, authorizeRoles } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
-router.use(protect);
-
-router.post('/', createInterview);
-router.get('/', getInterviews);
-router.get('/:id', getInterviewById);
-router.patch('/:id', updateInterview);
-router.post('/:id/join', joinInterview);
-router.post('/:id/end', endInterview);
+router.post('/', protect, createInterview);
+router.get('/', protect, getInterviews);
+router.get('/:id', protectOptional, getInterviewById);
+router.patch('/:id', protect, updateInterview);
+router.post('/:id/join', protectOptional, joinInterview);
+router.post('/:id/end', protect, endInterview);
 
 export default router;

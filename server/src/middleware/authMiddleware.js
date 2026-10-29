@@ -141,3 +141,25 @@ export function authorizeRoles(...roles) {
 }
 
 export const authorize = authorizeRoles;
+
+export function protectOptional(req, res, next) {
+  let token = null;
+  if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+    token = req.headers.authorization.split(' ')[1];
+  } else if (req.cookies && req.cookies.token) {
+    token = req.cookies.token;
+  }
+
+  if (!token) {
+    req.user = null;
+    return next();
+  }
+
+  // Attempt to authenticate with protect; if it fails or returns error, treat as optional (guest)
+  protect(req, res, (err) => {
+    if (err || !req.user) {
+      req.user = null;
+    }
+    next();
+  });
+}

@@ -101,6 +101,9 @@ export default function App() {
           <Route path="/privacy" element={<PrivacyPolicy />} />
           <Route path="/terms" element={<TermsOfService />} />
 
+          {/* Real-Time Live Interview Session (Accessible by meeting code link) */}
+          <Route path="/room/:meetingCode" element={<InterviewRoom />} />
+
           {/* Protected Application Routes */}
           <Route element={<ProtectedRoute />}>
             <Route path="/dashboard" element={<Dashboard />} />
@@ -111,7 +114,6 @@ export default function App() {
             <Route path="/evaluations" element={<Evaluations />} />
             <Route path="/admin" element={<AdminConsole />} />
             <Route path="/settings" element={<Settings />} />
-            <Route path="/room/:meetingCode" element={<InterviewRoom />} />
           </Route>
 
           {/* Fallback */}

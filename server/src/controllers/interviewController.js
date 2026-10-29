@@ -26,23 +26,34 @@ export async function createInterview(req, res, next) {
 
     let finalCandidateId = candidateId;
     if (!finalCandidateId && candidateEmail) {
-      let cand = await User.findOne({ email: candidateEmail.toLowerCase() });
-      if (!cand) {
-        cand = await User.create({
-          name: candidateName || candidateEmail.split('@')[0],
-          email: candidateEmail.toLowerCase(),
-          passwordHash: null,
-          role: 'candidate',
-          title: '',
-          emailVerified: true
-        });
+      try {
+        let cand = await User.findOne({ email: candidateEmail.toLowerCase() });
+        if (!cand) {
+          cand = await User.create({
+            name: candidateName || candidateEmail.split('@')[0],
+            email: candidateEmail.toLowerCase(),
+            passwordHash: null,
+            role: 'candidate',
+            title: '',
+            emailVerified: true
+          });
+        }
+        finalCandidateId = cand._id;
+      } catch (userErr) {
+        console.warn('Candidate user creation fallback:', userErr.message);
       }
-      finalCandidateId = cand._id;
     }
 
     if (!finalCandidateId || !mongoose.Types.ObjectId.isValid(finalCandidateId)) {
-      const anyCandidate = await User.findOne({ role: 'candidate' });
-      finalCandidateId = anyCandidate ? anyCandidate._id : safeUserId;
+      try {
+        const anyCandidate = await User.findOne({ role: 'candidate' });
+        finalCandidateId = anyCandidate ? anyCandidate._id : safeUserId;
+      } catch (e) {
+        finalCandidateId = safeUserId;
+      }
+    }
+    if (!mongoose.Types.ObjectId.isValid(finalCandidateId)) {
+      finalCandidateId = fallbackId;
     }
 
     const start = new Date(scheduledStart || scheduledAt || Date.now());
@@ -54,11 +65,17 @@ export async function createInterview(req, res, next) {
 
     let starterCode = '// Write your solution here\nfunction solution() {\n  return true;\n}\n';
     let defaultLang = 'javascript';
+    let validChallengeId = null;
 
-    if (challengeId) {
-      const challenge = await CodingChallenge.findById(challengeId);
-      if (challenge && challenge.starterCode?.javascript) {
-        starterCode = challenge.starterCode.javascript;
+    if (challengeId && mongoose.Types.ObjectId.isValid(challengeId)) {
+      validChallengeId = challengeId;
+      try {
+        const challenge = await CodingChallenge.findById(challengeId);
+        if (challenge && challenge.starterCode?.javascript) {
+          starterCode = challenge.starterCode.javascript;
+        }
+      } catch (cErr) {
+        console.warn('Challenge lookup warning:', cErr.message);
       }
     }
 
@@ -70,14 +87,14 @@ export async function createInterview(req, res, next) {
 
     const interview = await Interview.create({
       title,
-      description,
+      description: description || '',
       candidateId: finalCandidateId,
       interviewerIds: safeInterviewerIds.length > 0 ? safeInterviewerIds : [safeUserId],
       scheduledStart: start,
       scheduledEnd: end,
       meetingCode,
       meetingTokenHash,
-      challengeId: challengeId || null,
+      challengeId: validChallengeId,
       activeCode: starterCode,
       activeLanguage: defaultLang,
       createdBy: safeUserId
@@ -199,7 +216,8 @@ export async function getInterviewById(req, res, next) {
     let interview;
 
     // Support lookup by MongoDB _id or meetingCode (e.g. abc-defg-hij)
-    if (id.match(/^[0-9a-fA-F]{24}$/)) {
+    const isObjectId = Boolean(id.match(/^[0-9a-fA-F]{24}$/));
+    if (isObjectId) {
       interview = await Interview.findById(id);
     } else {
       interview = await Interview.findOne({ meetingCode: id });
@@ -209,21 +227,45 @@ export async function getInterviewById(req, res, next) {
       return res.status(404).json({ success: false, message: 'Interview not found.' });
     }
 
-    // Check authorization: participant, recruiter, or admin
-    const isCandidate = interview.candidateId.toString() === req.user._id.toString();
-    const isInterviewer = interview.interviewerIds.some(i => i.toString() === req.user._id.toString());
-    const isRecruiterOrAdmin = ['recruiter', 'admin'].includes(req.user.role);
+    // If looking up by meetingCode (room join flow):
+    // Anyone with the secret meeting link can join the interview session.
+    // If looked up by internal ObjectId, enforce authenticated organizational access.
+    if (isObjectId && req.user) {
+      const isCandidate = interview.candidateId && interview.candidateId.toString() === req.user._id.toString();
+      const isInterviewer = interview.interviewerIds && interview.interviewerIds.some(i => i.toString() === req.user._id.toString());
+      const isCreator = interview.createdBy && interview.createdBy.toString() === req.user._id.toString();
+      const isRecruiterOrAdmin = ['recruiter', 'admin'].includes(req.user.role);
 
-    if (!isCandidate && !isInterviewer && !isRecruiterOrAdmin) {
-      return res.status(403).json({ success: false, message: 'Access denied. You are not a participant in this interview.' });
+      if (!isCandidate && !isInterviewer && !isCreator && !isRecruiterOrAdmin) {
+        return res.status(403).json({ success: false, message: 'Access denied. You are not a participant in this interview.' });
+      }
+    }
+
+    // If an authenticated user who is not the creator/interviewer joins via meetingCode,
+    // associate them as candidate if candidate was placeholder/same as creator
+    if (req.user && !isObjectId) {
+      const isCreator = interview.createdBy && interview.createdBy.toString() === req.user._id.toString();
+      const isInterviewer = interview.interviewerIds && interview.interviewerIds.some(i => i.toString() === req.user._id.toString());
+      if (!isCreator && !isInterviewer && (!interview.candidateId || interview.candidateId.toString() === interview.createdBy?.toString())) {
+        interview.candidateId = req.user._id;
+        await interview.save().catch(() => {});
+      }
     }
 
     const populated = await Interview.findById(interview._id)
       .populate('candidateId', 'name email avatar role')
       .populate('interviewerIds', 'name email avatar role title')
+      .populate('createdBy', 'name email avatar role')
       .populate('challengeId');
 
-    res.json({ success: true, data: populated });
+    // Return populated data and nested interview property for seamless compatibility
+    res.json({
+      success: true,
+      data: {
+        ...populated.toObject(),
+        interview: populated
+      }
+    });
   } catch (err) {
     next(err);
   }
@@ -269,36 +311,49 @@ export async function joinInterview(req, res, next) {
       interview.actualStart = new Date();
       await interview.save();
 
-      await AnalyticsEvent.create({
-        actorId: req.user._id,
-        eventType: 'interview_started',
-        interviewId: interview._id
-      });
+      if (req.user?._id) {
+        await AnalyticsEvent.create({
+          actorId: req.user._id,
+          eventType: 'interview_started',
+          interviewId: interview._id
+        }).catch(() => {});
+      }
     }
 
-    let session = await InterviewSession.findOne({ interviewId: interview._id, sessionStatus: 'active' });
-    if (!session) {
-      session = await InterviewSession.create({
-        interviewId: interview._id,
-        participantIds: [req.user._id],
-        startedAt: new Date()
-      });
-    } else if (!session.participantIds.includes(req.user._id)) {
-      session.participantIds.push(req.user._id);
-      await session.save();
+    let sessionId = null;
+    if (req.user?._id) {
+      let session = await InterviewSession.findOne({ interviewId: interview._id, sessionStatus: 'active' });
+      if (!session) {
+        session = await InterviewSession.create({
+          interviewId: interview._id,
+          participantIds: [req.user._id],
+          startedAt: new Date()
+        });
+      } else if (!session.participantIds.includes(req.user._id)) {
+        session.participantIds.push(req.user._id);
+        await session.save();
+      }
+      sessionId = session._id;
     }
 
     const populated = await Interview.findById(interview._id)
       .populate('candidateId', 'name email avatar role')
       .populate('interviewerIds', 'name email avatar role title')
+      .populate('createdBy', 'name email avatar role')
       .populate('challengeId');
+
+    const isHost = req.user && (
+      interview.createdBy?.toString() === req.user._id.toString() ||
+      interview.interviewerIds.some(i => i.toString() === req.user._id.toString()) ||
+      ['admin', 'interviewer', 'recruiter'].includes(req.user.role)
+    );
 
     res.json({
       success: true,
       data: {
         interview: populated,
-        sessionId: session._id,
-        roleInInterview: interview.candidateId.toString() === req.user._id.toString() ? 'candidate' : 'interviewer'
+        sessionId,
+        roleInInterview: isHost ? 'interviewer' : 'candidate'
       }
     });
   } catch (err) {

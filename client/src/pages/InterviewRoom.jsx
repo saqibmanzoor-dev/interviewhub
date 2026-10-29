@@ -95,13 +95,22 @@ export default function InterviewRoom() {
   const [evalSuccess, setEvalSuccess] = useState(false);
 
   // Dynamic host & participant resolution based on authenticated user
-  const isHost = user?.role === 'admin' || user?.role === 'interviewer' || user?.role === 'recruiter' || interview?.createdBy === user?._id || interview?.createdBy?._id === user?._id;
-  const currentUserName = user?.name || (isHost ? 'Host' : 'Candidate');
+  const isHost = Boolean(
+    (interview?.createdBy && (interview.createdBy === user?._id || interview.createdBy?._id === user?._id)) ||
+    (interview?.interviewerIds && interview.interviewerIds.some(i => (i?._id || i) === user?._id)) ||
+    (!interview && (user?.role === 'admin' || user?.role === 'interviewer' || user?.role === 'recruiter'))
+  );
+
+  const [guestName, setGuestName] = useState(() => localStorage.getItem('interview_guest_name') || '');
+  const [showGuestModal, setShowGuestModal] = useState(() => !user && !localStorage.getItem('interview_guest_name'));
+  const [guestInputName, setGuestInputName] = useState('');
+
+  const currentUserName = user?.name || guestName || (isHost ? 'Lead Interviewer' : 'Second Candidate');
   const currentUserRoleLabel = isHost ? (user?.role === 'admin' ? 'Admin' : 'Interviewer') : 'Candidate';
 
   const remoteParticipantName = isHost 
-    ? (interview?.candidateId?.name || 'Technical Candidate') 
-    : (interview?.interviewerIds?.[0]?.name || interview?.createdBy?.name || 'Lead Interviewer');
+    ? (remotePeerInfo?.name || interview?.candidateId?.name || 'Second Candidate') 
+    : (remotePeerInfo?.name || interview?.interviewerIds?.[0]?.name || interview?.createdBy?.name || 'Lead Interviewer');
   const remoteParticipantRoleLabel = isHost ? 'Candidate' : 'Interviewer';
 
   // WebRTC State & References
@@ -110,16 +119,35 @@ export default function InterviewRoom() {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
   const localStreamRef = useRef(null);
+  const screenStreamRef = useRef(null);
+  const fallbackStreamRef = useRef(null);
   const chatBottomRef = useRef(null);
   const socketRef = useRef(null);
   const peerConnectionRef = useRef(null);
+  const broadcastRef = useRef(null);
+  const localPeerIdRef = useRef('peer_' + Math.random().toString(36).slice(2, 9));
+  const iceCandidateQueueRef = useRef([]);
 
   const RTC_CONFIG = {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' }
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun3.l.google.com:19302' },
+      { urls: 'stun:stun4.l.google.com:19302' }
     ]
+  };
+
+  const flushIceCandidates = async (pc) => {
+    if (!pc || !pc.remoteDescription) return;
+    while (iceCandidateQueueRef.current.length > 0) {
+      const candidate = iceCandidateQueueRef.current.shift();
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (e) {
+        console.warn('[WebRTC] flush candidate error:', e);
+      }
+    }
   };
 
   const createPeerConnection = (targetSocketId) => {
@@ -131,36 +159,63 @@ export default function InterviewRoom() {
 
     const pc = new RTCPeerConnection(RTC_CONFIG);
     peerConnectionRef.current = pc;
+    iceCandidateQueueRef.current = [];
 
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach(track => {
+    // Ensure video and audio transceivers exist so SDP always negotiates media
+    try {
+      pc.addTransceiver('video', { direction: 'sendrecv' });
+      pc.addTransceiver('audio', { direction: 'sendrecv' });
+    } catch (e) {}
+
+    const activeStream = screenStreamRef.current || localStreamRef.current;
+    if (activeStream) {
+      activeStream.getTracks().forEach(track => {
         try {
-          pc.addTrack(track, localStreamRef.current);
+          const senders = pc.getSenders();
+          const already = senders.find(s => s.track && s.track.kind === track.kind);
+          if (already) {
+            already.replaceTrack(track);
+          } else {
+            pc.addTrack(track, activeStream);
+          }
         } catch (e) {}
       });
     }
 
     pc.ontrack = (event) => {
       console.log('[WebRTC] Received remote track:', event.track.kind);
-      if (remoteVideoRef.current && event.streams[0]) {
-        remoteVideoRef.current.srcObject = event.streams[0];
-        setHasRemoteStream(true);
-        toast.success('Remote video connected');
+      const stream = (event.streams && event.streams[0]) ? event.streams[0] : new MediaStream([event.track]);
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = stream;
+        remoteVideoRef.current.play().catch(() => {});
       }
+      setHasRemoteStream(true);
+      toast.success('Remote video connected');
     };
 
     pc.onicecandidate = (event) => {
-      if (event.candidate && socketRef.current && targetSocketId) {
-        socketRef.current.emit('webrtc:ice-candidate', {
-          targetSocketId,
-          candidate: event.candidate
-        });
+      if (event.candidate) {
+        if (socketRef.current && targetSocketId) {
+          socketRef.current.emit('webrtc:ice-candidate', {
+            targetSocketId,
+            candidate: event.candidate
+          });
+        }
+        if (broadcastRef.current) {
+          broadcastRef.current.postMessage({
+            type: 'webrtc:ice-candidate',
+            candidate: event.candidate,
+            senderId: localPeerIdRef.current
+          });
+        }
       }
     };
 
     pc.onconnectionstatechange = () => {
       console.log('[WebRTC] Peer connection state:', pc.connectionState);
-      if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+      if (pc.connectionState === 'connected') {
+        setHasRemoteStream(true);
+      } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
         setHasRemoteStream(false);
       }
     };
@@ -197,11 +252,11 @@ export default function InterviewRoom() {
     };
   }, []);
 
-  // 4. Socket.IO Connection & Events
+  // 4. Socket.IO Connection & Dual-Channel Signaling
   useEffect(() => {
     const s = connectSocket();
     socketRef.current = s;
-    const roomId = interview?._id || meetingCode;
+    const roomId = meetingCode;
 
     s.on('connect', () => {
       setIsConnected(true);
@@ -212,16 +267,92 @@ export default function InterviewRoom() {
       toast.error('Socket disconnected. Reconnecting...');
     });
 
-    // Join Room
+    // Join Canonical Room using meetingCode
     s.emit('room:join', {
-      interviewId: roomId,
+      interviewId: meetingCode,
       user: {
-        id: user?._id || 'guest',
-        name: user?.name || 'Participant',
-        role: user?.role || 'candidate',
+        id: user?._id || localPeerIdRef.current,
+        name: user?.name || (isHost ? 'Lead Interviewer' : 'Candidate'),
+        role: user?.role || (isHost ? 'interviewer' : 'candidate'),
         avatar: user?.avatar || ''
       }
     });
+
+    // Initialize local cross-tab BroadcastChannel for bulletproof zero-latency signaling
+    let bc = null;
+    try {
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        bc = new BroadcastChannel('interviewhub_room_' + meetingCode);
+        broadcastRef.current = bc;
+
+        bc.onmessage = async (evt) => {
+          const msg = evt.data;
+          if (!msg || msg.senderId === localPeerIdRef.current) return;
+
+          if (msg.type === 'peer:announce') {
+            setRemotePeerInfo({ name: msg.name || 'Candidate', role: msg.role || 'candidate' });
+            try {
+              const pc = createPeerConnection(null);
+              const offer = await pc.createOffer();
+              await pc.setLocalDescription(offer);
+              bc.postMessage({
+                type: 'webrtc:offer',
+                sdp: offer,
+                senderId: localPeerIdRef.current,
+                name: currentUserName,
+                role: currentUserRoleLabel.toLowerCase()
+              });
+            } catch (err) {
+              console.error('[Broadcast] Offer error:', err);
+            }
+          } else if (msg.type === 'webrtc:offer') {
+            setRemotePeerInfo({ name: msg.name || 'Interviewer', role: msg.role || 'interviewer' });
+            try {
+              const pc = createPeerConnection(null);
+              await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+              const answer = await pc.createAnswer();
+              await pc.setLocalDescription(answer);
+              bc.postMessage({
+                type: 'webrtc:answer',
+                sdp: answer,
+                senderId: localPeerIdRef.current
+              });
+            } catch (err) {
+              console.error('[Broadcast] Answer error:', err);
+            }
+          } else if (msg.type === 'webrtc:answer') {
+            try {
+              if (peerConnectionRef.current) {
+                await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+              }
+            } catch (err) {
+              console.error('[Broadcast] Set remote description error:', err);
+            }
+          } else if (msg.type === 'webrtc:ice-candidate') {
+            try {
+              if (peerConnectionRef.current && msg.candidate) {
+                await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(msg.candidate));
+              }
+            } catch (e) {}
+          } else if (msg.type === 'editor:change') {
+            if (msg.code !== undefined) {
+              setCode(msg.code);
+            }
+          } else if (msg.type === 'chat:message') {
+            setMessages(prev => [...prev, msg.message]);
+          }
+        };
+
+        bc.postMessage({
+          type: 'peer:announce',
+          senderId: localPeerIdRef.current,
+          name: currentUserName,
+          role: currentUserRoleLabel.toLowerCase()
+        });
+      }
+    } catch (bcErr) {
+      console.warn('BroadcastChannel not supported:', bcErr);
+    }
 
     // Room initial state from server
     s.on('room:state', async (state) => {
@@ -389,6 +520,11 @@ export default function InterviewRoom() {
         } catch (e) {}
         peerConnectionRef.current = null;
       }
+      if (broadcastRef.current) {
+        try {
+          broadcastRef.current.close();
+        } catch (e) {}
+      }
       s.emit('room:leave');
       s.off('connect');
       s.off('disconnect');
@@ -402,31 +538,23 @@ export default function InterviewRoom() {
       s.off('webrtc:answer');
       s.off('webrtc:ice-candidate');
     };
-  }, [meetingCode, interview?._id, user]);
+  }, [meetingCode, user]);
 
   const fetchInterviewDetails = async () => {
     setIsLoading(true);
     try {
       const res = await api.get(`/interviews/${meetingCode}`);
-      const data = res.data.data;
-      setInterview(data.interview);
-      if (data.interview?.challengeId) {
-        setChallenge(data.interview.challengeId);
-        if (data.interview.challengeId.starterCode?.javascript) {
-          setCode(data.interview.challengeId.starterCode.javascript);
+      const data = res.data?.data;
+      const fetched = data?.interview || data;
+      if (fetched) {
+        setInterview(fetched);
+        if (fetched.challengeId) {
+          setChallenge(fetched.challengeId);
+          if (fetched.challengeId.starterCode?.javascript) {
+            setCode(fetched.challengeId.starterCode.javascript);
+          }
         }
       }
-      const hostUserName = (user?.role === 'admin' || user?.role === 'interviewer' || user?.role === 'recruiter')
-        ? (user?.name || 'Lead Interviewer')
-        : (data.interview?.interviewerIds?.[0]?.name || data.interview?.createdBy?.name || 'Lead Interviewer');
-      const candUserName = (user?.role === 'candidate')
-        ? (user?.name || 'Technical Candidate')
-        : (data.interview?.candidateId?.name || 'Technical Candidate');
-
-      setParticipants([
-        { id: '1', name: hostUserName, role: 'interviewer', mic: true, video: true },
-        { id: '2', name: candUserName, role: 'candidate', mic: isMicOn, video: isCameraOn }
-      ]);
     } catch (err) {
       console.warn('Could not load interview record, using simulated session:', err);
       setChallenge({
@@ -444,13 +572,54 @@ export default function InterviewRoom() {
           'Only one valid answer exists.'
         ]
       });
-      setParticipants([
-        { id: '1', name: user?.role !== 'candidate' ? (user?.name || 'Host') : 'Lead Interviewer', role: 'interviewer', mic: true, video: true },
-        { id: '2', name: user?.role === 'candidate' ? (user?.name || 'Candidate') : 'Technical Candidate', role: 'candidate', mic: isMicOn, video: isCameraOn }
-      ]);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const createFallbackMediaStream = (name, role) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 640;
+    canvas.height = 480;
+    const ctx = canvas.getContext('2d');
+    let f = 0;
+    const draw = () => {
+      f++;
+      const grad = ctx.createLinearGradient(0, 0, 640, 480);
+      grad.addColorStop(0, '#090d16');
+      grad.addColorStop(1, '#18181b');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 640, 480);
+
+      const pulse = Math.sin(f * 0.08) * 6;
+      ctx.beginPath();
+      ctx.arc(320, 200, 54 + pulse, 0, Math.PI * 2);
+      ctx.fillStyle = role === 'candidate' ? 'rgba(99, 102, 241, 0.2)' : 'rgba(139, 92, 246, 0.2)';
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(320, 200, 46, 0, Math.PI * 2);
+      ctx.fillStyle = role === 'candidate' ? '#4f46e5' : '#7c3aed';
+      ctx.fill();
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 30px Inter, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText((name || 'P').slice(0, 2).toUpperCase(), 320, 200);
+
+      ctx.font = '600 18px Inter, sans-serif';
+      ctx.fillText(name || 'Participant', 320, 280);
+
+      ctx.font = '500 12px Inter, sans-serif';
+      ctx.fillStyle = '#a1a1aa';
+      ctx.fillText((role === 'candidate' ? 'Second Candidate' : 'Interviewer').toUpperCase(), 320, 305);
+    };
+    draw();
+    const interval = setInterval(draw, 100);
+    const stream = canvas.captureStream(15);
+    stream._stopFallback = () => clearInterval(interval);
+    return stream;
   };
 
   const startMediaStream = async () => {
@@ -460,10 +629,47 @@ export default function InterviewRoom() {
         localStreamRef.current = stream;
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
+          localVideoRef.current.play().catch(() => {});
         }
+        if (peerConnectionRef.current) {
+          const currentSenders = peerConnectionRef.current.getSenders();
+          stream.getTracks().forEach(track => {
+            const sender = currentSenders.find(s => s.track && s.track.kind === track.kind);
+            if (sender) {
+              sender.replaceTrack(track);
+            } else {
+              try {
+                peerConnectionRef.current.addTrack(track, stream);
+              } catch (e) {}
+            }
+          });
+        }
+        return;
       }
     } catch (err) {
-      console.log('Using simulated camera tile representation (camera access not granted)');
+      console.log('Webcam unavailable or in use, activating synthetic live stream fallback:', err.message);
+    }
+
+    // Fallback stream so WebRTC peer connection always has real video stream
+    const fallbackStream = createFallbackMediaStream(currentUserName, isHost ? 'interviewer' : 'candidate');
+    fallbackStreamRef.current = fallbackStream;
+    localStreamRef.current = fallbackStream;
+    if (localVideoRef.current) {
+      localVideoRef.current.srcObject = fallbackStream;
+      localVideoRef.current.play().catch(() => {});
+    }
+    if (peerConnectionRef.current) {
+      const currentSenders = peerConnectionRef.current.getSenders();
+      fallbackStream.getTracks().forEach(track => {
+        const sender = currentSenders.find(s => s.track && s.track.kind === track.kind);
+        if (sender) {
+          sender.replaceTrack(track);
+        } else {
+          try {
+            peerConnectionRef.current.addTrack(track, fallbackStream);
+          } catch (e) {}
+        }
+      });
     }
   };
 
@@ -489,32 +695,85 @@ export default function InterviewRoom() {
     }
   };
 
+  const stopScreenSharing = async () => {
+    if (screenStreamRef.current) {
+      screenStreamRef.current.getTracks().forEach(t => t.stop());
+      screenStreamRef.current = null;
+    }
+    setIsScreenSharing(false);
+
+    const cameraTrack = localStreamRef.current?.getVideoTracks()[0];
+    if (peerConnectionRef.current && cameraTrack) {
+      const senders = peerConnectionRef.current.getSenders();
+      const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+      if (videoSender) {
+        await videoSender.replaceTrack(cameraTrack);
+      }
+    }
+
+    if (localVideoRef.current && localStreamRef.current) {
+      localVideoRef.current.srcObject = localStreamRef.current;
+      localVideoRef.current.play().catch(() => {});
+    }
+
+    if (socketRef.current) {
+      socketRef.current.emit('media:state-changed', { screenSharing: false });
+    }
+    if (broadcastRef.current) {
+      broadcastRef.current.postMessage({
+        type: 'media:state-changed',
+        screenSharing: false,
+        senderId: localPeerIdRef.current
+      });
+    }
+  };
+
   const toggleScreenShare = async () => {
     if (!isScreenSharing) {
       try {
         if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
           const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+          screenStreamRef.current = screenStream;
+          const screenTrack = screenStream.getVideoTracks()[0];
+
+          if (localVideoRef.current) {
+            localVideoRef.current.srcObject = screenStream;
+            localVideoRef.current.play().catch(() => {});
+          }
+
+          if (peerConnectionRef.current) {
+            const senders = peerConnectionRef.current.getSenders();
+            const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+            if (videoSender) {
+              await videoSender.replaceTrack(screenTrack);
+            }
+          }
+
           setIsScreenSharing(true);
+          toast.success('Screen sharing started');
+
           if (socketRef.current) {
             socketRef.current.emit('media:state-changed', { screenSharing: true });
           }
-          screenStream.getVideoTracks()[0].onended = () => {
-            setIsScreenSharing(false);
-            if (socketRef.current) {
-              socketRef.current.emit('media:state-changed', { screenSharing: false });
-            }
+          if (broadcastRef.current) {
+            broadcastRef.current.postMessage({
+              type: 'media:state-changed',
+              screenSharing: true,
+              senderId: localPeerIdRef.current
+            });
+          }
+
+          screenTrack.onended = () => {
+            stopScreenSharing();
           };
         } else {
-          setIsScreenSharing(true);
+          toast.error('Screen sharing is not supported in this browser.');
         }
       } catch (e) {
-        console.warn('Screen share cancelled');
+        console.warn('Screen share cancelled or failed:', e);
       }
     } else {
-      setIsScreenSharing(false);
-      if (socketRef.current) {
-        socketRef.current.emit('media:state-changed', { screenSharing: false });
-      }
+      stopScreenSharing();
     }
   };
 
@@ -524,6 +783,13 @@ export default function InterviewRoom() {
       socketRef.current.emit('editor:change', {
         code: newVal,
         language: selectedLanguage
+      });
+    }
+    if (broadcastRef.current) {
+      broadcastRef.current.postMessage({
+        type: 'editor:change',
+        code: newVal,
+        senderId: localPeerIdRef.current
       });
     }
   };
@@ -564,8 +830,23 @@ export default function InterviewRoom() {
     e.preventDefault();
     if (!chatInput.trim()) return;
     const text = chatInput.trim();
+    const newMsg = {
+      id: Date.now(),
+      sender: currentUserName,
+      role: isHost ? 'interviewer' : 'candidate',
+      text,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
     if (socketRef.current) {
       socketRef.current.emit('chat:message', { message: text });
+    }
+    if (broadcastRef.current) {
+      broadcastRef.current.postMessage({
+        type: 'chat:message',
+        message: newMsg,
+        senderId: localPeerIdRef.current
+      });
+      setMessages(prev => [...prev, newMsg]);
     }
     setChatInput('');
     setTimeout(() => {

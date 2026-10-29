@@ -12,16 +12,26 @@ export function setupInterviewSockets(io) {
 
     socket.on('room:join', async ({ interviewId, user }) => {
       try {
-        currentInterviewId = interviewId;
+        // Fetch interview details to resolve canonical room ID (meetingCode)
+        const isObjectId = typeof interviewId === 'string' && interviewId.match(/^[0-9a-fA-F]{24}$/);
+        const query = isObjectId ? { _id: interviewId } : { meetingCode: interviewId };
+
+        const interview = await Interview.findOne(query)
+          .populate('challengeId')
+          .lean();
+
+        // Always use canonical meetingCode as room ID so host and candidate share the exact same room
+        const canonicalRoomId = interview?.meetingCode || interviewId;
+        currentInterviewId = canonicalRoomId;
         currentUser = user;
 
-        socket.join(interviewId);
+        socket.join(canonicalRoomId);
 
-        if (!interviewRooms.has(interviewId)) {
-          interviewRooms.set(interviewId, new Map());
+        if (!interviewRooms.has(canonicalRoomId)) {
+          interviewRooms.set(canonicalRoomId, new Map());
         }
 
-        const roomMap = interviewRooms.get(interviewId);
+        const roomMap = interviewRooms.get(canonicalRoomId);
         const participantInfo = {
           socketId: socket.id,
           userId: user.id || user._id,
@@ -37,14 +47,6 @@ export function setupInterviewSockets(io) {
         };
 
         roomMap.set(socket.id, participantInfo);
-
-        // Fetch interview details for initial code & challenge state (support ObjectId and meetingCode slug)
-        const isObjectId = typeof interviewId === 'string' && interviewId.match(/^[0-9a-fA-F]{24}$/);
-        const query = isObjectId ? { _id: interviewId } : { meetingCode: interviewId };
-
-        const interview = await Interview.findOne(query)
-          .populate('challengeId')
-          .lean();
 
         // Fetch recent chat history
         const chatQuery = interview ? { interviewId: interview._id } : (isObjectId ? { interviewId } : null);
@@ -63,8 +65,8 @@ export function setupInterviewSockets(io) {
         });
 
         // Notify other participants in the room
-        socket.to(interviewId).emit('room:participant-joined', participantInfo);
-        console.log(`[Socket] User ${user.name} joined interview ${interviewId} (${participants.length} in room)`);
+        socket.to(canonicalRoomId).emit('room:participant-joined', participantInfo);
+        console.log(`[Socket] User ${user.name} joined interview room ${canonicalRoomId} (${participants.length} in room)`);
       } catch (err) {
         console.error('[Socket Join Error]', err);
         socket.emit('error', { message: 'Failed to join interview room.' });
