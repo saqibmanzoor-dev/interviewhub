@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Editor from '@monaco-editor/react';
-import { Group, Panel, Separator } from 'react-resizable-panels';
 import { 
   Mic, 
   MicOff, 
@@ -58,6 +57,44 @@ export default function InterviewRoom() {
 
   // Media Controls (Mic, Cam, Screen)
   const [isMicOn, setIsMicOn] = useState(true);
+
+  // Resizable Panes State
+  const [leftWidthPercent, setLeftWidthPercent] = useState(40);
+  const [isResizing, setIsResizing] = useState(false);
+  const containerRef = useRef(null);
+
+  const startResizing = (e) => {
+    e.preventDefault();
+    setIsResizing(true);
+  };
+
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const handlePointerMove = (e) => {
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const newWidth = ((clientX - rect.left) / rect.width) * 100;
+      setLeftWidthPercent(Math.min(Math.max(newWidth, 25), 65));
+    };
+
+    const handlePointerUp = () => {
+      setIsResizing(false);
+    };
+
+    window.addEventListener('mousemove', handlePointerMove);
+    window.addEventListener('mouseup', handlePointerUp);
+    window.addEventListener('touchmove', handlePointerMove);
+    window.addEventListener('touchend', handlePointerUp);
+
+    return () => {
+      window.removeEventListener('mousemove', handlePointerMove);
+      window.removeEventListener('mouseup', handlePointerUp);
+      window.removeEventListener('touchmove', handlePointerMove);
+      window.removeEventListener('touchend', handlePointerUp);
+    };
+  }, [isResizing]);
   const [isCameraOn, setIsCameraOn] = useState(true);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [activeSpeaker, setActiveSpeaker] = useState('self'); // 'self' | 'remote'
@@ -976,11 +1013,15 @@ export default function InterviewRoom() {
       </header>
 
       {/* Main Draggable Split Pane Area */}
-      <div className="flex-1 overflow-hidden relative">
-        <Group orientation="horizontal" className="h-full w-full">
-          
-          {/* Left Pane: Responsive Video Grid + Bottom Drawer (Chat/Participants/Evaluation) */}
-          <Panel defaultSize="40%" minSize="25%" maxSize="60%" className="h-full flex flex-col bg-zinc-950 p-2 gap-2 border-r border-zinc-800/80 min-h-0">
+      <div 
+        ref={containerRef}
+        className={`flex-1 overflow-hidden relative flex flex-row ${isResizing ? 'cursor-col-resize select-none' : ''}`}
+      >
+        {/* Left Pane: Responsive Video Grid + Bottom Drawer (Chat/Participants/Evaluation) */}
+        <div 
+          style={{ width: `${leftWidthPercent}%` }}
+          className="h-full flex flex-col bg-zinc-950 p-2 gap-2 border-r border-zinc-800/80 min-h-0 shrink-0 overflow-hidden"
+        >
             
             {/* Video Container with Sliding Control Bar on Hover */}
             <div className="h-64 sm:h-72 shrink-0 grid grid-cols-2 gap-2 relative group overflow-hidden rounded-xl bg-zinc-900/60 border border-zinc-800/80 p-2">
@@ -1303,16 +1344,27 @@ export default function InterviewRoom() {
                 </form>
               )}
             </div>
-
-          </Panel>
+          </div>
 
           {/* Resizer Handle */}
-          <Separator className="w-1.5 bg-zinc-900 hover:bg-violet-600/60 active:bg-violet-600 transition-colors cursor-col-resize flex items-center justify-center group">
+          <div
+            onMouseDown={startResizing}
+            onTouchStart={startResizing}
+            role="separator"
+            tabIndex={0}
+            title="Drag to resize panels"
+            className={`w-1.5 shrink-0 bg-zinc-900 hover:bg-violet-600/70 active:bg-violet-600 transition-colors cursor-col-resize flex items-center justify-center group relative z-20 ${
+              isResizing ? 'bg-violet-600' : ''
+            }`}
+          >
             <div className="w-0.5 h-6 bg-zinc-700 group-hover:bg-white rounded-full transition-colors" />
-          </Separator>
+          </div>
 
           {/* Right Pane: Collapsible Question Panel + Monaco Editor (vs-dark) + Fixed Bottom Execution Bar */}
-          <Panel defaultSize="60%" minSize="40%" className="h-full flex flex-col bg-zinc-950 overflow-hidden relative min-h-0">
+          <div 
+            style={{ width: `${100 - leftWidthPercent}%` }}
+            className="h-full flex flex-col bg-zinc-950 overflow-hidden relative min-h-0 flex-1"
+          >
             
             {/* Top Collapsible Challenge Statement Panel */}
             <div className="border-b border-zinc-800/80 bg-zinc-900/60 transition-all duration-200">
@@ -1561,10 +1613,9 @@ export default function InterviewRoom() {
               </div>
             </div>
 
-          </Panel>
+          </div>
 
-        </Group>
-      </div>
+        </div>
 
       {/* Guest Candidate Prompt Modal */}
       {showGuestModal && (
