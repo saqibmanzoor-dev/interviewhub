@@ -17,7 +17,10 @@ import {
   Plus,
   ShieldCheck,
   Zap,
-  Target
+  Target,
+  ChevronRight,
+  ExternalLink,
+  Search
 } from 'lucide-react';
 import { 
   AreaChart, 
@@ -30,13 +33,32 @@ import {
   PolarGrid, 
   PolarAngleAxis, 
   PolarRadiusAxis, 
-  Radar, 
-  PieChart, 
-  Pie, 
-  Cell 
+  Radar 
 } from 'recharts';
+import { toast } from 'sonner';
 import api from '../services/api';
 import { useAuthStore } from '../store/authStore';
+
+// Custom dark mode tooltip for Recharts
+const CustomChartTooltip = ({ active, payload, label }) => {
+  if (active && payload && payload.length) {
+    return (
+      <div className="rounded-lg bg-zinc-900 border border-zinc-800 p-3 shadow-xl text-xs space-y-1">
+        <div className="font-semibold text-zinc-300 mb-1">{label}</div>
+        {payload.map((item, index) => (
+          <div key={index} className="flex items-center justify-between gap-4">
+            <span className="flex items-center gap-1.5 text-zinc-400">
+              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color }} />
+              {item.name}:
+            </span>
+            <span className="font-mono font-medium text-white">{item.value}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  return null;
+};
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -56,11 +78,12 @@ export default function Dashboard() {
       });
       const meetingCode = res.data.data?.meetingCode;
       if (meetingCode) {
+        toast.success(`Meeting ${meetingCode} created`);
         navigate(`/room/${meetingCode}`);
       }
     } catch (err) {
       console.error('Instant meeting error:', err);
-      alert(err.response?.data?.message || 'Failed to start instant meeting');
+      toast.error(err.response?.data?.message || 'Failed to start instant meeting');
     } finally {
       setInstantLoading(false);
     }
@@ -88,7 +111,7 @@ export default function Dashboard() {
     }
   };
 
-  // Default fallback data for Social Blade velocity chart if backend has limited history
+  // Weekly velocity trends fallback data
   const chartData = analytics?.weeklyTrends?.length ? analytics.weeklyTrends : [
     { week: 'W1', completed: 4, scheduled: 6, passRate: 75 },
     { week: 'W2', completed: 7, scheduled: 8, passRate: 85 },
@@ -107,40 +130,36 @@ export default function Dashboard() {
     { subject: 'Debugging', score: 4.5, fullMark: 5 },
   ];
 
-  const recommendationPie = [
-    { name: 'Strong Hire', value: 45, color: '#10b981' },
-    { name: 'Hire', value: 35, color: '#3b82f6' },
-    { name: 'Leaning No', value: 12, color: '#f59e0b' },
-    { name: 'Strong No', value: 8, color: '#ef4444' }
-  ];
-
   return (
-    <div className="min-h-[calc(100vh-4rem)] bg-[#0B0F19] text-slate-100 py-8 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-7xl mx-auto space-y-8">
+    <div className="min-h-[calc(100vh-4rem)] bg-zinc-950 text-zinc-100 py-8 px-4 sm:px-6 lg:px-8 selection:bg-violet-500/30 selection:text-violet-300">
+      <div className="max-w-7xl mx-auto space-y-6">
         
-        {/* Welcome Banner & Quick Action Bar */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 p-6 rounded-2xl bg-gradient-to-r from-slate-900 via-slate-900/90 to-emerald-950/40 border border-slate-800 shadow-xl relative overflow-hidden">
-          <div className="absolute right-0 top-0 w-96 h-full bg-emerald-500/5 blur-3xl pointer-events-none" />
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold uppercase tracking-wider text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/20">
+        {/* Welcome Header & Action Command Bar */}
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 p-6 rounded-2xl bg-zinc-900/70 border border-zinc-800/80 shadow-sm backdrop-blur-xl relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-96 h-full bg-violet-600/5 blur-3xl pointer-events-none" />
+          
+          <div className="relative z-10">
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-violet-400 bg-violet-500/10 px-2.5 py-0.5 rounded-md border border-violet-500/20">
                 Live Engineering Platform
               </span>
-              <span className="text-xs text-slate-400 capitalize">Role: {user?.role}</span>
+              <span className="text-xs text-zinc-400 capitalize">
+                Role: <strong className="text-zinc-200">{user?.role || 'Guest'}</strong>
+              </span>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight mt-1.5">
+            <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
               Welcome back, {user?.name || 'Engineer'}
             </h1>
-            <p className="text-sm text-slate-400 mt-1">
-              Social Blade analytics, active technical evaluation pipelines, and upcoming meetings.
+            <p className="text-xs sm:text-sm text-zinc-400 mt-1 leading-relaxed">
+              Real-time pipeline analytics, candidate competency metrics, and active interview rooms.
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3 relative z-10">
             <button
               onClick={handleInstantMeeting}
               disabled={instantLoading}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-semibold shadow-lg shadow-emerald-600/25 transition-all hover:scale-102 disabled:opacity-50 cursor-pointer"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-xs font-medium shadow-sm hover:shadow-violet-600/25 transition-all duration-200 focus-visible:ring-2 focus-visible:ring-violet-500/50 outline-none disabled:opacity-50 cursor-pointer"
             >
               {instantLoading ? (
                 <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
@@ -154,23 +173,28 @@ export default function Dashboard() {
 
             <Link
               to="/interviews?create=true"
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold shadow-md transition-all hover:scale-102"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-zinc-900 hover:bg-zinc-800/90 border border-zinc-800 text-zinc-200 text-xs font-medium transition-all duration-200 hover:border-zinc-700 focus-visible:ring-2 focus-visible:ring-violet-500/50 outline-none"
             >
-              <Plus className="w-4 h-4 text-emerald-400" />
+              <Plus className="w-4 h-4 text-violet-400" />
               <span>Schedule Interview</span>
             </Link>
 
-            <div className="flex items-center gap-1.5 bg-slate-900/90 border border-slate-700/80 rounded-xl p-1">
+            <div className="flex items-center bg-zinc-950 border border-zinc-800 rounded-lg p-1">
               <input
                 type="text"
                 placeholder="Meeting Code..."
                 value={meetingInput}
                 onChange={(e) => setMeetingInput(e.target.value)}
-                className="bg-transparent px-2.5 py-1 text-xs text-slate-200 placeholder-slate-500 focus:outline-none w-32"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && meetingInput.trim()) {
+                    navigate(`/room/${meetingInput.trim().toLowerCase()}`);
+                  }
+                }}
+                className="bg-transparent px-2.5 py-1 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none w-28 sm:w-32 font-mono"
               />
               <button
-                onClick={() => meetingInput && navigate(`/room/${meetingInput.trim().toLowerCase()}`)}
-                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-emerald-400 transition-colors"
+                onClick={() => meetingInput.trim() && navigate(`/room/${meetingInput.trim().toLowerCase()}`)}
+                className="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-violet-400 hover:text-violet-300 transition-colors cursor-pointer"
               >
                 Join
               </button>
@@ -178,270 +202,323 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Social Blade Inspired Grade & KPI Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        {/* Bento Grid Layout */}
+        <div className="grid grid-cols-12 gap-5">
           
-          {/* Social Blade Overall Grade Card */}
-          <div className="sm:col-span-2 lg:col-span-1 rounded-2xl p-5 bg-gradient-to-b from-emerald-950/40 via-slate-900 to-slate-900 border border-emerald-500/30 flex flex-col justify-between shadow-lg relative overflow-hidden group">
-            <div className="absolute top-2 right-2 text-emerald-500/20 group-hover:text-emerald-500/30 transition-colors">
-              <Award className="w-16 h-16 -mr-4 -mt-4 opacity-50" />
+          {/* Bento Tile 1: Social Blade Overall Grade Card (Col 4) */}
+          <div className="col-span-12 lg:col-span-4 rounded-xl bg-zinc-900/70 border border-zinc-800/80 p-6 flex flex-col justify-between shadow-sm relative overflow-hidden group">
+            <div className="absolute top-2 right-2 text-violet-500/10 group-hover:text-violet-500/20 transition-colors pointer-events-none">
+              <Award className="w-24 h-24 -mr-6 -mt-6 opacity-40" />
             </div>
+
             <div>
-              <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">Platform Rank & Grade</div>
-              <div className="mt-2 flex items-baseline gap-2">
-                <span className="text-4xl font-extrabold text-white tracking-tight">A+</span>
-                <span className="text-xs font-semibold text-emerald-400 bg-emerald-500/20 px-1.5 py-0.5 rounded">TOP 2%</span>
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-violet-400 flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  Engineering Benchmark
+                </span>
+                <span className="text-[10px] font-mono text-zinc-500">Tier-1 SaaS</span>
               </div>
-              <p className="text-[11px] text-slate-400 mt-1">Based on candidate completion, execution pass rate, and interviewer feedback score.</p>
+
+              <div className="mt-4 flex items-baseline gap-3">
+                <span className="text-5xl font-black text-white tracking-tight">A+</span>
+                <span className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-md">
+                  TOP 2% PIPELINE
+                </span>
+              </div>
+
+              <p className="text-xs text-zinc-400 mt-2 leading-relaxed">
+                Aggregated from candidate code execution accuracy, rubric consensus, and median time-to-hire.
+              </p>
             </div>
-            <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs">
-              <span className="text-slate-400">Global Rank</span>
-              <span className="font-bold text-white">#12 in Enterprise</span>
+
+            <div className="mt-6 pt-4 border-t border-zinc-800/80 flex items-center justify-between text-xs">
+              <span className="text-zinc-500">Benchmark Standing</span>
+              <span className="font-semibold text-zinc-200">#12 in Technical Orgs</span>
             </div>
           </div>
 
-          {/* Metric 1: Total Interviews */}
-          <div className="rounded-2xl p-5 bg-slate-900 border border-slate-800 shadow-lg flex flex-col justify-between">
+          {/* Bento Tile 2: Velocity & Trends Area Chart (Col 8) */}
+          <div className="col-span-12 lg:col-span-8 rounded-xl bg-zinc-900/70 border border-zinc-800/80 p-6 shadow-sm flex flex-col justify-between">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                  <BarChart3 className="w-4 h-4 text-violet-400" />
+                  <span>Interview Velocity & Completion Trends</span>
+                </h3>
+                <p className="text-xs text-zinc-400 mt-0.5">Weekly volume of scheduled vs completed technical evaluations</p>
+              </div>
+              <div className="flex items-center gap-2 text-xs">
+                <span className="inline-flex items-center gap-1.5 text-zinc-400">
+                  <span className="w-2 h-2 rounded-full bg-violet-500" />
+                  Completed
+                </span>
+                <span className="inline-flex items-center gap-1.5 text-zinc-400">
+                  <span className="w-2 h-2 rounded-full bg-indigo-500" />
+                  Scheduled
+                </span>
+              </div>
+            </div>
+
+            <div className="h-56 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="violetArea" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.35}/>
+                      <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
+                    </linearGradient>
+                    <linearGradient id="indigoArea" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.25}/>
+                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  {/* Remove heavy axis grid lines */}
+                  <XAxis dataKey="week" stroke="#52525b" fontSize={11} tickLine={false} axisLine={{ stroke: '#27272a' }} />
+                  <YAxis stroke="#52525b" fontSize={11} tickLine={false} axisLine={{ stroke: '#27272a' }} />
+                  <Tooltip content={<CustomChartTooltip />} />
+                  <Area type="monotone" dataKey="completed" stroke="#8b5cf6" strokeWidth={2} fillOpacity={1} fill="url(#violetArea)" name="Completed" />
+                  <Area type="monotone" dataKey="scheduled" stroke="#6366f1" strokeWidth={2} fillOpacity={1} fill="url(#indigoArea)" name="Scheduled" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Bento Tile 3: Total Interviews KPI (Col 3) */}
+          <div className="col-span-6 lg:col-span-3 rounded-xl bg-zinc-900/70 border border-zinc-800/80 p-5 shadow-sm flex flex-col justify-between">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-slate-400">Total Interviews</span>
-              <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400">
+              <span className="text-xs font-medium text-zinc-400">Total Interviews</span>
+              <div className="p-2 rounded-lg bg-violet-500/10 text-violet-400">
                 <Calendar className="w-4 h-4" />
               </div>
             </div>
-            <div className="mt-3">
-              <div className="text-2xl font-bold text-white">{analytics?.totalInterviews || 24}</div>
+            <div className="mt-4">
+              <div className="text-2xl font-bold text-white tracking-tight">
+                {isLoading ? <div className="h-7 w-16 bg-zinc-800 rounded animate-pulse" /> : (analytics?.totalInterviews || 24)}
+              </div>
               <div className="flex items-center gap-1 text-[11px] text-emerald-400 mt-1 font-medium">
                 <TrendingUp className="w-3.5 h-3.5" />
                 <span>+18.4% this month</span>
               </div>
             </div>
-            <div className="mt-3 pt-2 border-t border-slate-800/80 text-[11px] text-slate-400">
-              {analytics?.inProgressCount || 2} in progress now
+            <div className="mt-3 pt-2.5 border-t border-zinc-800/80 text-[11px] text-zinc-500">
+              {analytics?.inProgressCount || 2} active sessions right now
             </div>
           </div>
 
-          {/* Metric 2: Hire Pass Rate */}
-          <div className="rounded-2xl p-5 bg-slate-900 border border-slate-800 shadow-lg flex flex-col justify-between">
+          {/* Bento Tile 4: Hiring Pass Rate KPI (Col 3) */}
+          <div className="col-span-6 lg:col-span-3 rounded-xl bg-zinc-900/70 border border-zinc-800/80 p-5 shadow-sm flex flex-col justify-between">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-slate-400">Hiring Pass Rate</span>
+              <span className="text-xs font-medium text-zinc-400">Hiring Pass Rate</span>
               <div className="p-2 rounded-lg bg-blue-500/10 text-blue-400">
                 <Target className="w-4 h-4" />
               </div>
             </div>
-            <div className="mt-3">
-              <div className="text-2xl font-bold text-white">{analytics?.passRate || 78.5}%</div>
+            <div className="mt-4">
+              <div className="text-2xl font-bold text-white tracking-tight">
+                {isLoading ? <div className="h-7 w-16 bg-zinc-800 rounded animate-pulse" /> : `${analytics?.passRate || 78.5}%`}
+              </div>
               <div className="flex items-center gap-1 text-[11px] text-emerald-400 mt-1 font-medium">
                 <TrendingUp className="w-3.5 h-3.5" />
-                <span>+4.2% vs industry</span>
+                <span>+4.2% vs industry avg</span>
               </div>
             </div>
-            <div className="mt-3 pt-2 border-t border-slate-800/80 text-[11px] text-slate-400">
-              Filtered for senior roles
+            <div className="mt-3 pt-2.5 border-t border-zinc-800/80 text-[11px] text-zinc-500">
+              Evaluated across senior engineering
             </div>
           </div>
 
-          {/* Metric 3: Code Executions */}
-          <div className="rounded-2xl p-5 bg-slate-900 border border-slate-800 shadow-lg flex flex-col justify-between">
+          {/* Bento Tile 5: Code Executions KPI (Col 3) */}
+          <div className="col-span-6 lg:col-span-3 rounded-xl bg-zinc-900/70 border border-zinc-800/80 p-5 shadow-sm flex flex-col justify-between">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-slate-400">Code Executions</span>
+              <span className="text-xs font-medium text-zinc-400">Code Executions</span>
               <div className="p-2 rounded-lg bg-purple-500/10 text-purple-400">
                 <Code2 className="w-4 h-4" />
               </div>
             </div>
-            <div className="mt-3">
-              <div className="text-2xl font-bold text-white">{analytics?.codeExecutionsCount || 142}</div>
+            <div className="mt-4">
+              <div className="text-2xl font-bold text-white tracking-tight">
+                {isLoading ? <div className="h-7 w-16 bg-zinc-800 rounded animate-pulse" /> : (analytics?.codeExecutionsCount || 142)}
+              </div>
               <div className="flex items-center gap-1 text-[11px] text-purple-400 mt-1 font-medium">
                 <Zap className="w-3.5 h-3.5" />
-                <span>99.2% success rate</span>
+                <span>99.2% test suite success</span>
               </div>
             </div>
-            <div className="mt-3 pt-2 border-t border-slate-800/80 text-[11px] text-slate-400">
-              Avg runtime: 18ms
+            <div className="mt-3 pt-2.5 border-t border-zinc-800/80 text-[11px] text-zinc-500">
+              Median latency: 18ms isolated sandbox
             </div>
           </div>
 
-          {/* Metric 4: Avg Score */}
-          <div className="rounded-2xl p-5 bg-slate-900 border border-slate-800 shadow-lg flex flex-col justify-between">
+          {/* Bento Tile 6: Candidate Score KPI (Col 3) */}
+          <div className="col-span-6 lg:col-span-3 rounded-xl bg-zinc-900/70 border border-zinc-800/80 p-5 shadow-sm flex flex-col justify-between">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-slate-400">Avg Candidate Score</span>
+              <span className="text-xs font-medium text-zinc-400">Avg Candidate Score</span>
               <div className="p-2 rounded-lg bg-amber-500/10 text-amber-400">
                 <Award className="w-4 h-4" />
               </div>
             </div>
-            <div className="mt-3">
-              <div className="text-2xl font-bold text-white">{analytics?.averageScore || 4.3} <span className="text-xs text-slate-500">/ 5.0</span></div>
+            <div className="mt-4">
+              <div className="text-2xl font-bold text-white tracking-tight">
+                {isLoading ? <div className="h-7 w-16 bg-zinc-800 rounded animate-pulse" /> : `${analytics?.averageScore || 4.3}`} <span className="text-xs text-zinc-500 font-normal">/ 5.0</span>
+              </div>
               <div className="flex items-center gap-1 text-[11px] text-emerald-400 mt-1 font-medium">
                 <TrendingUp className="w-3.5 h-3.5" />
-                <span>Rubric normalized</span>
+                <span>Rubric normalized score</span>
               </div>
             </div>
-            <div className="mt-3 pt-2 border-t border-slate-800/80 text-[11px] text-slate-400">
-              4 rubric categories
+            <div className="mt-3 pt-2.5 border-t border-zinc-800/80 text-[11px] text-zinc-500">
+              4 competency rubrics evaluated
             </div>
           </div>
 
-        </div>
-
-        {/* Charts Section: Velocity Trends & Competencies */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          
-          {/* Main Velocity Area Chart */}
-          <div className="lg:col-span-2 rounded-2xl p-6 bg-slate-900 border border-slate-800 shadow-xl">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                  <BarChart3 className="w-4 h-4 text-emerald-400" />
-                  <span>Interview Velocity & Completion Trends</span>
-                </h3>
-                <p className="text-xs text-slate-400 mt-0.5">Weekly interview volume and successful completions over time</p>
-              </div>
-              <span className="text-[11px] bg-slate-800 px-2.5 py-1 rounded-md text-slate-300 font-medium">Last 6 Weeks</span>
-            </div>
-
-            <div className="h-64 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="emeraldGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.4}/>
-                      <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                    </linearGradient>
-                    <linearGradient id="blueGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <XAxis dataKey="week" stroke="#64748b" fontSize={11} tickLine={false} />
-                  <YAxis stroke="#64748b" fontSize={11} tickLine={false} />
-                  <Tooltip 
-                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px', fontSize: '12px' }}
-                  />
-                  <Area type="monotone" dataKey="completed" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#emeraldGrad)" name="Completed" />
-                  <Area type="monotone" dataKey="scheduled" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#blueGrad)" name="Scheduled" />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-
-            <div className="flex items-center justify-center gap-6 mt-3 text-xs text-slate-400">
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded bg-emerald-500" />
-                <span>Completed Interviews</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded bg-blue-500" />
-                <span>Total Scheduled</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Competency Radar Chart */}
-          <div className="rounded-2xl p-6 bg-slate-900 border border-slate-800 shadow-xl flex flex-col justify-between">
+          {/* Bento Tile 7: Upcoming / Active Sessions Table (Col 8) */}
+          <div className="col-span-12 lg:col-span-8 rounded-xl bg-zinc-900/70 border border-zinc-800/80 shadow-sm overflow-hidden flex flex-col justify-between">
             <div>
-              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-amber-400" />
-                <span>Candidate Competency Profile</span>
-              </h3>
-              <p className="text-xs text-slate-400 mt-0.5">Average ratings across key technical evaluation rubrics</p>
+              <div className="p-5 border-b border-zinc-800/80 flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                    <Video className="w-4 h-4 text-violet-400" />
+                    <span>Upcoming & Active Sessions</span>
+                  </h3>
+                  <p className="text-xs text-zinc-400 mt-0.5">Direct WebRTC room access, candidate profiles, and meeting states</p>
+                </div>
+                <Link 
+                  to="/interviews" 
+                  className="text-xs font-medium text-violet-400 hover:text-violet-300 flex items-center gap-1 transition-colors"
+                >
+                  <span>View All</span>
+                  <ArrowUpRight className="w-3.5 h-3.5" />
+                </Link>
+              </div>
+
+              {isLoading ? (
+                /* Skeleton Loader */
+                <div className="p-5 space-y-3">
+                  {[1, 2, 3].map((n) => (
+                    <div key={n} className="flex items-center justify-between p-3.5 rounded-lg bg-zinc-950/60 border border-zinc-800/60 animate-pulse">
+                      <div className="space-y-2">
+                        <div className="h-4 w-40 bg-zinc-800 rounded" />
+                        <div className="h-3 w-24 bg-zinc-800/60 rounded" />
+                      </div>
+                      <div className="h-8 w-24 bg-zinc-800 rounded" />
+                    </div>
+                  ))}
+                </div>
+              ) : interviews.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-zinc-950/60 text-zinc-400 uppercase tracking-wider text-[10px] border-b border-zinc-800/80">
+                      <tr>
+                        <th className="px-5 py-3 font-medium">Session Title</th>
+                        <th className="px-5 py-3 font-medium">Candidate</th>
+                        <th className="px-5 py-3 font-medium">Scheduled</th>
+                        <th className="px-5 py-3 font-medium">Status</th>
+                        <th className="px-5 py-3 font-medium text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-800/60 text-zinc-300">
+                      {interviews.map((item) => (
+                        <tr key={item._id} className="hover:bg-zinc-800/30 transition-colors">
+                          <td className="px-5 py-3.5">
+                            <div className="font-medium text-white">{item.title}</div>
+                            <div className="text-[11px] text-zinc-500 font-mono mt-0.5">Code: {item.meetingCode}</div>
+                          </td>
+                          <td className="px-5 py-3.5">
+                            <div className="text-zinc-200">{item.candidateId?.name || 'Candidate'}</div>
+                            <div className="text-[11px] text-zinc-500">{item.candidateId?.email || 'Direct invite'}</div>
+                          </td>
+                          <td className="px-5 py-3.5">
+                            <div className="text-zinc-200">{new Date(item.scheduledStart || item.scheduledAt || Date.now()).toLocaleDateString()}</div>
+                            <div className="text-[11px] text-zinc-500">{new Date(item.scheduledStart || item.scheduledAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                          </td>
+                          <td className="px-5 py-3.5">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border ${
+                              item.status === 'in_progress' ? 'bg-amber-500/10 text-amber-400 border-amber-500/30 animate-pulse' :
+                              item.status === 'completed' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' :
+                              item.status === 'cancelled' ? 'bg-red-500/10 text-red-400 border-red-500/30' :
+                              'bg-violet-500/10 text-violet-400 border-violet-500/30'
+                            }`}>
+                              {item.status?.replace('_', ' ').toUpperCase()}
+                            </span>
+                          </td>
+                          <td className="px-5 py-3.5 text-right">
+                            <Link
+                              to={`/room/${item.meetingCode}`}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-medium text-xs transition-all shadow-sm hover:shadow-violet-600/25"
+                            >
+                              <Play className="w-3 h-3 fill-current" />
+                              <span>Join Room</span>
+                            </Link>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                /* Tier-1 Empty State Card */
+                <div className="p-8 text-center flex flex-col items-center justify-center">
+                  <div className="w-12 h-12 rounded-2xl bg-zinc-950 border border-zinc-800 flex items-center justify-center text-zinc-500 mb-3">
+                    <Calendar className="w-6 h-6 text-zinc-400" />
+                  </div>
+                  <h4 className="text-sm font-semibold text-zinc-200">No scheduled sessions found</h4>
+                  <p className="text-xs text-zinc-400 mt-1 max-w-sm leading-relaxed">
+                    You have no active or upcoming technical interviews in your pipeline.
+                  </p>
+                  <div className="mt-4 flex items-center gap-2.5">
+                    <button
+                      onClick={handleInstantMeeting}
+                      className="px-3.5 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-xs font-medium transition-all shadow-sm cursor-pointer"
+                    >
+                      Start Instant Room
+                    </button>
+                    <Link
+                      to="/interviews?create=true"
+                      className="px-3.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium transition-colors"
+                    >
+                      Schedule Interview
+                    </Link>
+                  </div>
+                </div>
+              )}
             </div>
 
-            <div className="h-60 w-full flex items-center justify-center">
+            <div className="p-3 bg-zinc-950/40 border-t border-zinc-800/80 text-[11px] text-zinc-500 flex items-center justify-between px-5">
+              <span>Synchronized with Google Meet & Cal.com standards</span>
+              <span>All sessions recorded & transcribed</span>
+            </div>
+          </div>
+
+          {/* Bento Tile 8: Competency Profile Radar Chart (Col 4) */}
+          <div className="col-span-12 lg:col-span-4 rounded-xl bg-zinc-900/70 border border-zinc-800/80 p-6 shadow-sm flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-amber-400" />
+                  <span>Candidate Competency Profile</span>
+                </h3>
+              </div>
+              <p className="text-xs text-zinc-400">Mean rubric scores across key technical dimensions</p>
+            </div>
+
+            <div className="h-56 w-full flex items-center justify-center my-2">
               <ResponsiveContainer width="100%" height="100%">
-                <RadarChart outerRadius={80} data={radarData}>
-                  <PolarGrid stroke="#334155" />
-                  <PolarAngleAxis dataKey="subject" stroke="#94a3b8" fontSize={10} />
-                  <PolarRadiusAxis angle={30} domain={[0, 5]} stroke="#475569" fontSize={9} />
-                  <Radar name="Candidate Average" dataKey="score" stroke="#10b981" fill="#10b981" fillOpacity={0.4} />
+                <RadarChart outerRadius={75} data={radarData}>
+                  <PolarGrid stroke="#27272a" />
+                  <PolarAngleAxis dataKey="subject" stroke="#a1a1aa" fontSize={10} />
+                  <PolarRadiusAxis angle={30} domain={[0, 5]} stroke="#3f3f46" fontSize={9} />
+                  <Radar name="Candidate Average" dataKey="score" stroke="#8b5cf6" fill="#8b5cf6" fillOpacity={0.35} />
                 </RadarChart>
               </ResponsiveContainer>
             </div>
 
-            <div className="pt-2 border-t border-slate-800 text-[11px] text-slate-400 flex justify-between">
-              <span>Top Strength: <strong className="text-emerald-400">Communication</strong></span>
-              <span>Growth Area: <strong className="text-amber-400">System Design</strong></span>
+            <div className="pt-3 border-t border-zinc-800/80 text-[11px] text-zinc-400 flex items-center justify-between">
+              <span>Top Strength: <strong className="text-violet-400 font-medium">Communication (4.7)</strong></span>
+              <span>Target: <strong className="text-zinc-200 font-medium">4.0+ Bar</strong></span>
             </div>
           </div>
 
-        </div>
-
-        {/* Live / Upcoming Interviews Table */}
-        <div className="rounded-2xl bg-slate-900 border border-slate-800 shadow-xl overflow-hidden">
-          <div className="p-5 border-b border-slate-800 flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                <Video className="w-4 h-4 text-emerald-400" />
-                <span>Upcoming & Recent Technical Interviews</span>
-              </h3>
-              <p className="text-xs text-slate-400 mt-0.5">Instant room launch, candidate details, and meeting statuses</p>
-            </div>
-            <Link to="/interviews" className="text-xs font-medium text-emerald-400 hover:text-emerald-300 flex items-center gap-1">
-              <span>View All</span>
-              <ArrowUpRight className="w-3.5 h-3.5" />
-            </Link>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-950/60 text-slate-400 uppercase tracking-wider text-[10px] border-b border-slate-800">
-                <tr>
-                  <th className="px-5 py-3 font-semibold">Meeting Title & Role</th>
-                  <th className="px-5 py-3 font-semibold">Candidate</th>
-                  <th className="px-5 py-3 font-semibold">Interviewer</th>
-                  <th className="px-5 py-3 font-semibold">Date & Time</th>
-                  <th className="px-5 py-3 font-semibold">Status</th>
-                  <th className="px-5 py-3 font-semibold text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800 text-slate-300">
-                {interviews.length > 0 ? (
-                  interviews.map((item) => (
-                    <tr key={item._id} className="hover:bg-slate-800/40 transition-colors">
-                      <td className="px-5 py-3.5">
-                        <div className="font-semibold text-white">{item.title}</div>
-                        <div className="text-[11px] text-slate-400 font-mono mt-0.5">Code: {item.meetingCode}</div>
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <div className="font-medium text-slate-200">{item.candidateId?.name || 'Technical Candidate'}</div>
-                        <div className="text-[11px] text-slate-400">{item.candidateId?.email || 'candidate@interviewhub.io'}</div>
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <div className="font-medium text-slate-200">{item.interviewerIds?.[0]?.name || item.interviewerId?.name || item.createdBy?.name || 'Lead Interviewer'}</div>
-                        <div className="text-[11px] text-slate-400">{item.interviewerIds?.[0]?.title || 'Technical Interviewer'}</div>
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <div className="text-slate-200">{new Date(item.scheduledStart || item.scheduledAt || Date.now()).toLocaleDateString()}</div>
-                        <div className="text-[11px] text-slate-400">{new Date(item.scheduledStart || item.scheduledAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
-                          item.status === 'in_progress' ? 'bg-amber-500/10 text-amber-400 border-amber-500/30 animate-pulse' :
-                          item.status === 'completed' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' :
-                          item.status === 'cancelled' ? 'bg-rose-500/10 text-rose-400 border-rose-500/30' :
-                          'bg-blue-500/10 text-blue-400 border-blue-500/30'
-                        }`}>
-                          {item.status?.replace('_', ' ').toUpperCase()}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3.5 text-right">
-                        <Link
-                          to={`/room/${item.meetingCode}`}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs shadow-md shadow-emerald-600/20 transition-all hover:scale-102"
-                        >
-                          <Play className="w-3 h-3 fill-current" />
-                          <span>Join Room</span>
-                        </Link>
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan="6" className="px-5 py-8 text-center text-slate-500">
-                      No interviews scheduled. Click "Schedule Interview" above to create one.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
         </div>
 
       </div>

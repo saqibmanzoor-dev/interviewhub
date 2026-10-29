@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Editor from '@monaco-editor/react';
+import { Group, Panel, Separator } from 'react-resizable-panels';
 import { 
   Mic, 
   MicOff, 
@@ -21,13 +22,19 @@ import {
   Clock, 
   Sparkles, 
   ChevronRight, 
+  ChevronDown,
+  ChevronUp,
   Maximize2, 
   Send,
   Terminal,
   Columns,
   Code2,
-  Tv
+  Tv,
+  AlertTriangle,
+  Flame,
+  Layers
 } from 'lucide-react';
+import { toast } from 'sonner';
 import api from '../services/api';
 import { getSocket, connectSocket } from '../services/socket';
 import { useAuthStore } from '../store/authStore';
@@ -43,16 +50,17 @@ export default function InterviewRoom() {
   const [isLoading, setIsLoading] = useState(true);
   const [copiedCode, setCopiedCode] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [isConnected, setIsConnected] = useState(true);
 
-  // Layout & Drawers
-  const [layoutMode, setLayoutMode] = useState('split'); // 'split' | 'code' | 'video'
-  const [activeSidePanel, setActiveSidePanel] = useState('problem'); // 'problem' | 'chat' | 'participants' | 'evaluation' | null
+  // Left Pane Sub-tabs: 'chat' | 'participants' | 'evaluation'
+  const [leftTab, setLeftTab] = useState('chat');
+  const [isProblemCollapsed, setIsProblemCollapsed] = useState(false);
 
   // Media Controls (Mic, Cam, Screen)
   const [isMicOn, setIsMicOn] = useState(true);
   const [isCameraOn, setIsCameraOn] = useState(true);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
-  const [activeSpeaker, setActiveSpeaker] = useState('interviewer'); // 'candidate' | 'interviewer'
+  const [activeSpeaker, setActiveSpeaker] = useState('self'); // 'self' | 'remote'
 
   // Code Editor State
   const [selectedLanguage, setSelectedLanguage] = useState('javascript');
@@ -61,10 +69,11 @@ export default function InterviewRoom() {
   const [customInput, setCustomInput] = useState('');
   const [executionResult, setExecutionResult] = useState(null);
   const [activeConsoleTab, setActiveConsoleTab] = useState('tests'); // 'output' | 'tests' | 'stdin'
+  const [showConsole, setShowConsole] = useState(true);
 
   // Chat State
   const [messages, setMessages] = useState([
-    { id: 1, sender: 'InterviewHub Bot', role: 'system', text: `Welcome to meeting room ${meetingCode}. Video and collaborative code sync are active.`, timestamp: 'Just now' }
+    { id: 1, sender: 'InterviewHub Bot', role: 'system', text: `Welcome to session ${meetingCode}. Video and collaborative code sync are active.`, timestamp: 'Just now' }
   ]);
   const [chatInput, setChatInput] = useState('');
   const [unreadChatCount, setUnreadChatCount] = useState(0);
@@ -81,19 +90,19 @@ export default function InterviewRoom() {
   });
   const [recommendation, setRecommendation] = useState('hire');
   const [feedback, setFeedback] = useState('Excellent algorithmic understanding and structured communication throughout the problem solving process.');
-  const [privateNotes, setPrivateNotes] = useState('Strong candidate for Senior L5 role. Fast execution and handled edge cases cleanly.');
+  const [privateNotes, setPrivateNotes] = useState('Strong candidate for Senior role. Fast execution and handled edge cases cleanly.');
   const [evalSubmitting, setEvalSubmitting] = useState(false);
   const [evalSuccess, setEvalSuccess] = useState(false);
 
   // Dynamic host & participant resolution based on authenticated user
   const isHost = user?.role === 'admin' || user?.role === 'interviewer' || user?.role === 'recruiter' || interview?.createdBy === user?._id || interview?.createdBy?._id === user?._id;
   const currentUserName = user?.name || (isHost ? 'Host' : 'Candidate');
-  const currentUserRoleLabel = isHost ? (user?.role === 'admin' ? 'Admin (Host)' : 'Lead Interviewer') : 'Technical Candidate';
+  const currentUserRoleLabel = isHost ? (user?.role === 'admin' ? 'Admin' : 'Interviewer') : 'Candidate';
 
   const remoteParticipantName = isHost 
     ? (interview?.candidateId?.name || 'Technical Candidate') 
     : (interview?.interviewerIds?.[0]?.name || interview?.createdBy?.name || 'Lead Interviewer');
-  const remoteParticipantRoleLabel = isHost ? 'Candidate' : 'Interviewer (Host)';
+  const remoteParticipantRoleLabel = isHost ? 'Candidate' : 'Interviewer';
 
   // WebRTC State & References
   const [hasRemoteStream, setHasRemoteStream] = useState(false);
@@ -136,6 +145,7 @@ export default function InterviewRoom() {
       if (remoteVideoRef.current && event.streams[0]) {
         remoteVideoRef.current.srcObject = event.streams[0];
         setHasRemoteStream(true);
+        toast.success('Remote video connected');
       }
     };
 
@@ -158,7 +168,7 @@ export default function InterviewRoom() {
     return pc;
   };
 
-  // 1. Fetch Interview & Challenge Data
+  // 1. Fetch Interview Details
   useEffect(() => {
     fetchInterviewDetails();
   }, [meetingCode]);
@@ -192,6 +202,15 @@ export default function InterviewRoom() {
     const s = connectSocket();
     socketRef.current = s;
     const roomId = interview?._id || meetingCode;
+
+    s.on('connect', () => {
+      setIsConnected(true);
+    });
+
+    s.on('disconnect', () => {
+      setIsConnected(false);
+      toast.error('Socket disconnected. Reconnecting...');
+    });
 
     // Join Room
     s.emit('room:join', {
@@ -243,6 +262,7 @@ export default function InterviewRoom() {
 
     s.on('room:participant-joined', async (participant) => {
       setRemotePeerInfo(participant);
+      toast.success(`${participant.name} joined the room`);
       setParticipants(prev => {
         if (prev.some(p => p.id === (participant.userId || participant.socketId))) return prev;
         return [...prev, {
@@ -263,7 +283,6 @@ export default function InterviewRoom() {
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       }]);
 
-      // When another peer joins, initiate WebRTC Offer
       if (participant.socketId && participant.socketId !== s.id) {
         try {
           const pc = createPeerConnection(participant.socketId);
@@ -279,7 +298,6 @@ export default function InterviewRoom() {
       }
     });
 
-    // WebRTC Signaling: Receiving Offer
     s.on('webrtc:offer', async ({ senderSocketId, sdp }) => {
       console.log('[WebRTC] Incoming offer from:', senderSocketId);
       try {
@@ -296,7 +314,6 @@ export default function InterviewRoom() {
       }
     });
 
-    // WebRTC Signaling: Receiving Answer
     s.on('webrtc:answer', async ({ senderSocketId, sdp }) => {
       console.log('[WebRTC] Incoming answer from:', senderSocketId);
       try {
@@ -308,7 +325,6 @@ export default function InterviewRoom() {
       }
     });
 
-    // WebRTC Signaling: Receiving ICE candidate
     s.on('webrtc:ice-candidate', async ({ senderSocketId, candidate }) => {
       try {
         if (peerConnectionRef.current && candidate) {
@@ -332,6 +348,7 @@ export default function InterviewRoom() {
       if (remoteVideoRef.current) {
         remoteVideoRef.current.srcObject = null;
       }
+      toast.info('Remote participant left');
     });
 
     s.on('editor:change', (data) => {
@@ -351,7 +368,7 @@ export default function InterviewRoom() {
         text: msg.message,
         timestamp: new Date(msg.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       }]);
-      if (activeSidePanel !== 'chat') {
+      if (leftTab !== 'chat') {
         setUnreadChatCount(prev => prev + 1);
       }
     });
@@ -373,6 +390,8 @@ export default function InterviewRoom() {
         peerConnectionRef.current = null;
       }
       s.emit('room:leave');
+      s.off('connect');
+      s.off('disconnect');
       s.off('room:state');
       s.off('room:participant-joined');
       s.off('room:participant-left');
@@ -397,7 +416,6 @@ export default function InterviewRoom() {
           setCode(data.interview.challengeId.starterCode.javascript);
         }
       }
-      // Populate dynamic participants
       const hostUserName = (user?.role === 'admin' || user?.role === 'interviewer' || user?.role === 'recruiter')
         ? (user?.name || 'Lead Interviewer')
         : (data.interview?.interviewerIds?.[0]?.name || data.interview?.createdBy?.name || 'Lead Interviewer');
@@ -411,7 +429,6 @@ export default function InterviewRoom() {
       ]);
     } catch (err) {
       console.warn('Could not load interview record, using simulated session:', err);
-      // Fallback challenge
       setChallenge({
         title: 'Two Sum & Subarray Target Sum',
         difficulty: 'Easy',
@@ -446,7 +463,6 @@ export default function InterviewRoom() {
         }
       }
     } catch (err) {
-      // Permission denied or headless environment: normal in test environments
       console.log('Using simulated camera tile representation (camera access not granted)');
     }
   };
@@ -514,6 +530,7 @@ export default function InterviewRoom() {
 
   const handleRunCode = async () => {
     setIsRunningCode(true);
+    setShowConsole(true);
     setActiveConsoleTab('tests');
     try {
       const res = await api.post('/code-executions', {
@@ -526,6 +543,7 @@ export default function InterviewRoom() {
       if (socketRef.current) {
         socketRef.current.emit('editor:run-result', res.data.data);
       }
+      toast.success('Code executed successfully');
     } catch (err) {
       setExecutionResult({
         status: 'error',
@@ -536,6 +554,7 @@ export default function InterviewRoom() {
           { name: 'Test 1: Standard Case', passed: false, input: '[2, 7, 11, 15], 9', expected: '[0, 1]', actual: 'Error running code' }
         ]
       });
+      toast.error('Code execution failed');
     } finally {
       setIsRunningCode(false);
     }
@@ -583,9 +602,11 @@ export default function InterviewRoom() {
         });
       }
       setEvalSuccess(true);
+      toast.success('Evaluation rubric saved');
       setTimeout(() => setEvalSuccess(false), 4000);
     } catch (err) {
       console.error('Error submitting evaluation:', err);
+      toast.error('Failed to submit evaluation');
     } finally {
       setEvalSubmitting(false);
     }
@@ -600,36 +621,46 @@ export default function InterviewRoom() {
   const copyMeetingLink = () => {
     navigator.clipboard.writeText(`${window.location.origin}/room/${meetingCode}`);
     setCopiedCode(true);
+    toast.success('Room link copied');
     setTimeout(() => setCopiedCode(false), 2500);
   };
 
   return (
-    <div className="h-screen w-screen bg-[#07090E] text-slate-100 flex flex-col overflow-hidden select-none">
+    <div className="h-screen w-screen bg-zinc-950 text-zinc-100 flex flex-col overflow-hidden select-none selection:bg-violet-500/30 selection:text-violet-300">
       
-      {/* 1. Google Meet Inspired Top Header */}
-      <header className="h-14 px-4 bg-[#0B0F19] border-b border-slate-800/80 flex items-center justify-between gap-4 shrink-0 z-30">
-        
-        {/* Left: Meeting Info & Timer */}
+      {/* Network Reconnection Warning Banner */}
+      {!isConnected && (
+        <div className="bg-amber-500/10 border-b border-amber-500/20 text-amber-300 px-4 py-1.5 text-xs flex items-center justify-center gap-2 z-50 shrink-0">
+          <div className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+          <span className="font-medium">Reconnecting to live session...</span>
+        </div>
+      )}
+
+      {/* Top Header */}
+      <header className="h-12 px-4 bg-zinc-950/90 border-b border-zinc-800/80 flex items-center justify-between gap-4 shrink-0 z-30">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-            <h1 className="text-sm font-semibold text-white tracking-tight truncate max-w-xs sm:max-w-md">
+            <span className="flex h-2 w-2 relative">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            <h1 className="text-xs sm:text-sm font-semibold text-white tracking-tight truncate max-w-xs sm:max-w-md">
               {interview?.title || 'Technical Assessment Round'}
             </h1>
           </div>
 
-          <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-900 border border-slate-800 text-xs text-slate-300 font-mono">
-            <Clock className="w-3.5 h-3.5 text-emerald-400" />
+          <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-zinc-900 border border-zinc-800 text-[11px] text-zinc-300 font-mono">
+            <Clock className="w-3.5 h-3.5 text-violet-400" />
             <span>{formatTimer(elapsedSeconds)}</span>
           </div>
 
-          <div className="hidden md:flex items-center gap-2">
-            <span className="font-mono text-xs text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">
+          <div className="hidden md:flex items-center gap-1.5">
+            <span className="font-mono text-[11px] text-zinc-400 bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded">
               {meetingCode}
             </span>
             <button
               onClick={copyMeetingLink}
-              className="p-1 rounded text-slate-400 hover:text-white transition-colors"
+              className="p-1 rounded text-zinc-400 hover:text-white transition-colors cursor-pointer"
               title="Copy Room Link"
             >
               {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
@@ -637,231 +668,440 @@ export default function InterviewRoom() {
           </div>
         </div>
 
-        {/* Right: Layout Switcher & Quick Profile */}
-        <div className="flex items-center gap-2.5">
-          {/* Layout Mode Toggle */}
-          <div className="hidden sm:flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5">
-            <button
-              onClick={() => setLayoutMode('split')}
-              className={`p-1.5 rounded text-xs flex items-center gap-1 ${layoutMode === 'split' ? 'bg-slate-800 text-emerald-400 font-medium' : 'text-slate-400 hover:text-white'}`}
-              title="Split View (Video + Code)"
-            >
-              <Columns className="w-3.5 h-3.5" />
-              <span className="hidden lg:inline text-[11px]">Split</span>
-            </button>
-            <button
-              onClick={() => setLayoutMode('code')}
-              className={`p-1.5 rounded text-xs flex items-center gap-1 ${layoutMode === 'code' ? 'bg-slate-800 text-emerald-400 font-medium' : 'text-slate-400 hover:text-white'}`}
-              title="Full Code Editor"
-            >
-              <Code2 className="w-3.5 h-3.5" />
-              <span className="hidden lg:inline text-[11px]">Editor</span>
-            </button>
-            <button
-              onClick={() => setLayoutMode('video')}
-              className={`p-1.5 rounded text-xs flex items-center gap-1 ${layoutMode === 'video' ? 'bg-slate-800 text-emerald-400 font-medium' : 'text-slate-400 hover:text-white'}`}
-              title="Full Video View"
-            >
-              <Tv className="w-3.5 h-3.5" />
-              <span className="hidden lg:inline text-[11px]">Video</span>
-            </button>
-          </div>
-
-          <div className="flex items-center gap-2 pl-2 border-l border-slate-800">
-            <div className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-xs border border-emerald-500/30">
+        {/* Right side persona badge & leave room */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 pl-2 border-l border-zinc-800">
+            <div className="w-6 h-6 rounded-md bg-violet-600/20 text-violet-400 flex items-center justify-center font-bold text-[10px] border border-violet-500/30">
               {user?.name ? user.name.slice(0, 2).toUpperCase() : 'ME'}
             </div>
-            <span className="text-xs text-slate-300 font-medium hidden md:inline capitalize">
+            <span className="text-xs text-zinc-300 font-medium hidden md:inline capitalize">
               {user?.role || 'Guest'}
             </span>
           </div>
-        </div>
 
+          <button
+            onClick={() => {
+              if (window.confirm('Are you sure you want to leave this interview room?')) {
+                navigate('/dashboard');
+              }
+            }}
+            className="px-3 py-1 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
+          >
+            <PhoneOff className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Leave</span>
+          </button>
+        </div>
       </header>
 
-      {/* 2. Main Work Area (Video Grid + Code Editor + Side Drawer) */}
-      <div className="flex-1 flex overflow-hidden relative">
-        
-        {/* LEFT / CENTER CONTENT AREA */}
-        <div className="flex-1 flex flex-col md:flex-row overflow-hidden p-2 gap-2 bg-[#07090E]">
+      {/* Main Draggable Split Pane Area */}
+      <div className="flex-1 overflow-hidden relative">
+        <Group orientation="horizontal" className="h-full w-full">
           
-          {/* VIDEO CONFERENCING GRID */}
-          {(layoutMode === 'split' || layoutMode === 'video') && (
-            <div className={`flex flex-col gap-2 transition-all duration-200 ${
-              layoutMode === 'video' ? 'w-full h-full' : 'w-full md:w-[38%] h-64 md:h-full shrink-0'
-            }`}>
+          {/* Left Pane: Responsive Video Grid + Bottom Drawer (Chat/Participants/Evaluation) */}
+          <Panel defaultSize={38} minSize={25} maxSize={55} className="flex flex-col bg-zinc-950 p-2 gap-2 border-r border-zinc-800/80">
+            
+            {/* Video Container with Sliding Control Bar on Hover */}
+            <div className="h-64 sm:h-72 shrink-0 grid grid-cols-2 gap-2 relative group overflow-hidden rounded-xl bg-zinc-900/60 border border-zinc-800/80 p-2">
               
-              {/* Tile 1: YOUR Live Video Tile */}
-              <div className="flex-1 rounded-2xl bg-slate-900 border border-slate-800 relative overflow-hidden flex flex-col items-center justify-center shadow-lg group">
-                {activeSpeaker === 'self' && (
-                  <div className="absolute inset-0 border-2 border-emerald-500/80 rounded-2xl pointer-events-none shadow-[inset_0_0_15px_rgba(16,185,129,0.3)] animate-pulse" />
-                )}
-
+              {/* Tile 1: Local Stream */}
+              <div 
+                onClick={() => setActiveSpeaker('self')}
+                className={`rounded-lg bg-zinc-950 border relative overflow-hidden flex flex-col items-center justify-center transition-all cursor-pointer ${
+                  activeSpeaker === 'self' 
+                    ? 'ring-2 ring-violet-500 ring-offset-2 ring-offset-zinc-950 border-violet-500/80 shadow-[0_0_15px_rgba(139,92,246,0.25)]' 
+                    : 'border-zinc-800/80'
+                }`}
+              >
                 {isCameraOn ? (
                   <video
                     ref={localVideoRef}
                     autoPlay
                     playsInline
                     muted
-                    className="w-full h-full object-cover rounded-2xl"
+                    className="w-full h-full object-cover rounded-lg"
                   />
                 ) : (
                   <div className="flex flex-col items-center justify-center">
-                    <div className="w-20 h-20 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center text-xl font-bold ring-4 ring-slate-700/60 shadow-xl">
+                    <div className="w-14 h-14 rounded-full bg-zinc-900 border border-zinc-800 text-zinc-300 flex items-center justify-center text-sm font-bold shadow-sm">
                       {currentUserName.slice(0, 2).toUpperCase()}
                     </div>
-                    <div className="mt-2.5 text-center">
-                      <span className="text-xs font-semibold text-white">{currentUserName}</span>
-                      <span className="block text-[10px] text-slate-400">Camera Off</span>
-                    </div>
+                    <span className="text-[11px] font-medium text-zinc-300 mt-2">{currentUserName}</span>
                   </div>
                 )}
 
-                {/* Bottom Bar: You */}
-                <div className="absolute bottom-2.5 left-2.5 px-2 py-1 rounded-lg bg-black/60 backdrop-blur-md text-[11px] font-medium text-slate-200 flex items-center gap-1.5 border border-white/10">
-                  {isMicOn ? <Mic className="w-3.5 h-3.5 text-emerald-400" /> : <MicOff className="w-3.5 h-3.5 text-rose-400" />}
+                <div className="absolute bottom-2 left-2 px-2 py-0.5 rounded bg-black/70 backdrop-blur-md text-[10px] font-medium text-zinc-200 flex items-center gap-1.5 border border-white/10">
+                  {isMicOn ? <Mic className="w-3 h-3 text-emerald-400" /> : <MicOff className="w-3 h-3 text-red-400" />}
                   <span>{currentUserName} (You)</span>
-                  <span className="text-[10px] text-emerald-400 ml-1">[{currentUserRoleLabel}]</span>
                 </div>
 
                 {isScreenSharing && (
-                  <div className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded bg-blue-500/20 border border-blue-500/40 text-[10px] font-semibold text-blue-300 flex items-center gap-1">
-                    <Share2 className="w-3 h-3" />
-                    <span>Sharing Screen</span>
+                  <div className="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-violet-500/20 border border-violet-500/40 text-[9px] font-semibold text-violet-300 flex items-center gap-1">
+                    <Share2 className="w-2.5 h-2.5" />
+                    <span>Screen</span>
                   </div>
                 )}
               </div>
 
-              {/* Tile 2: Remote Peer Video Tile */}
-              <div className="flex-1 rounded-2xl bg-slate-900 border border-slate-800 relative overflow-hidden flex flex-col items-center justify-center shadow-lg group">
+              {/* Tile 2: Remote Peer Stream */}
+              <div 
+                onClick={() => setActiveSpeaker('remote')}
+                className={`rounded-lg bg-zinc-950 border relative overflow-hidden flex flex-col items-center justify-center transition-all cursor-pointer ${
+                  activeSpeaker === 'remote' 
+                    ? 'ring-2 ring-violet-500 ring-offset-2 ring-offset-zinc-950 border-violet-500/80 shadow-[0_0_15px_rgba(139,92,246,0.25)]' 
+                    : 'border-zinc-800/80'
+                }`}
+              >
                 <video
                   ref={remoteVideoRef}
                   autoPlay
                   playsInline
-                  className={`w-full h-full object-cover rounded-2xl ${hasRemoteStream ? 'block' : 'hidden'}`}
+                  className={`w-full h-full object-cover rounded-lg ${hasRemoteStream ? 'block' : 'hidden'}`}
                 />
 
                 {!hasRemoteStream && (
-                  <div className="flex flex-col items-center justify-center">
-                    <div className="relative">
-                      <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-cyan-600 via-blue-600 to-indigo-500 flex items-center justify-center text-white font-bold text-2xl shadow-xl shadow-cyan-500/20 ring-4 ring-slate-800">
-                        {(remotePeerInfo?.name || remoteParticipantName).slice(0, 2).toUpperCase()}
-                      </div>
-                      <div className="absolute -bottom-1 -right-1 p-1 rounded-full bg-emerald-500 text-slate-950">
-                        <Mic className="w-3.5 h-3.5" />
-                      </div>
+                  <div className="flex flex-col items-center justify-center text-center p-2">
+                    <div className="w-14 h-14 rounded-full bg-gradient-to-tr from-violet-600 to-indigo-600 flex items-center justify-center text-white font-bold text-sm shadow-sm ring-2 ring-zinc-800">
+                      {(remotePeerInfo?.name || remoteParticipantName).slice(0, 2).toUpperCase()}
                     </div>
-                    <div className="mt-2.5 text-center">
-                      <span className="text-xs font-semibold text-white">{remotePeerInfo?.name || remoteParticipantName}</span>
-                      <span className="block text-[10px] text-slate-400">
-                        {remotePeerInfo ? (remotePeerInfo.role === 'candidate' ? 'Candidate' : 'Interviewer (Host)') : 'Waiting for remote peer...'}
+                    <div className="mt-2">
+                      <span className="text-[11px] font-medium text-white block truncate max-w-[120px]">
+                        {remotePeerInfo?.name || remoteParticipantName}
+                      </span>
+                      <span className="text-[10px] text-zinc-500 block">
+                        {remotePeerInfo ? (remotePeerInfo.role === 'candidate' ? 'Candidate' : 'Interviewer') : 'Waiting for connection...'}
                       </span>
                     </div>
                   </div>
                 )}
 
-                {/* Remote Participant Bottom Bar */}
-                <div className="absolute bottom-2.5 left-2.5 px-2 py-1 rounded-lg bg-black/60 backdrop-blur-md text-[11px] font-medium text-slate-200 flex items-center gap-1.5 border border-white/10">
-                  <span className={`w-2 h-2 rounded-full ${remotePeerInfo || hasRemoteStream ? 'bg-emerald-400 animate-ping' : 'bg-amber-400'}`} />
+                <div className="absolute bottom-2 left-2 px-2 py-0.5 rounded bg-black/70 backdrop-blur-md text-[10px] font-medium text-zinc-200 flex items-center gap-1.5 border border-white/10">
+                  <span className={`w-1.5 h-1.5 rounded-full ${remotePeerInfo || hasRemoteStream ? 'bg-emerald-400' : 'bg-amber-400'}`} />
                   <span>{remotePeerInfo?.name || remoteParticipantName}</span>
-                  <span className="text-[10px] text-slate-400 ml-1">
-                    [{remotePeerInfo ? (remotePeerInfo.role === 'candidate' ? 'Candidate' : 'Host') : remoteParticipantRoleLabel}]
-                  </span>
                 </div>
               </div>
 
+              {/* Hover Media Controls Dock - Hidden by default, slides up from bottom on hover */}
+              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-2 p-1.5 rounded-full bg-zinc-950/90 backdrop-blur-md border border-zinc-800 shadow-xl opacity-0 group-hover:opacity-100 translate-y-3 group-hover:translate-y-0 transition-all duration-200 z-20">
+                <button
+                  onClick={toggleMic}
+                  className={`p-2 rounded-full transition-colors cursor-pointer ${
+                    isMicOn ? 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200' : 'bg-red-600 text-white animate-pulse'
+                  }`}
+                  title={isMicOn ? 'Mute Mic' : 'Unmute Mic'}
+                >
+                  {isMicOn ? <Mic className="w-3.5 h-3.5" /> : <MicOff className="w-3.5 h-3.5" />}
+                </button>
+
+                <button
+                  onClick={toggleCamera}
+                  className={`p-2 rounded-full transition-colors cursor-pointer ${
+                    isCameraOn ? 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200' : 'bg-red-600 text-white'
+                  }`}
+                  title={isCameraOn ? 'Turn Camera Off' : 'Turn Camera On'}
+                >
+                  {isCameraOn ? <VideoIcon className="w-3.5 h-3.5" /> : <VideoOff className="w-3.5 h-3.5" />}
+                </button>
+
+                <button
+                  onClick={toggleScreenShare}
+                  className={`p-2 rounded-full transition-colors cursor-pointer ${
+                    isScreenSharing ? 'bg-violet-600 text-white' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200'
+                  }`}
+                  title="Share Screen"
+                >
+                  <Share2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
-          )}
 
-          {/* MONACO CODE EDITOR & EXECUTION CONSOLE */}
-          {(layoutMode === 'split' || layoutMode === 'code') && (
-            <div className="flex-1 flex flex-col rounded-2xl bg-slate-900 border border-slate-800 overflow-hidden shadow-xl">
-              
-              {/* Editor Top Bar */}
-              <div className="h-11 px-3 bg-slate-950/80 border-b border-slate-800 flex items-center justify-between gap-3 shrink-0">
-                <div className="flex items-center gap-2">
-                  <FileCode2 className="w-4 h-4 text-emerald-400" />
-                  <span className="text-xs font-semibold text-slate-200 hidden sm:inline">Collaborative IDE</span>
-                  
-                  {/* Language Selector */}
-                  <select
-                    value={selectedLanguage}
-                    onChange={(e) => {
-                      setSelectedLanguage(e.target.value);
-                      if (socketRef.current) {
-                        socketRef.current.emit('editor:change', { code, language: e.target.value });
-                      }
-                    }}
-                    className="bg-slate-900 border border-slate-700/80 rounded-md px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
-                  >
-                    <option value="javascript">JavaScript (Node.js)</option>
-                    <option value="python">Python 3</option>
-                    <option value="cpp">C++ (GCC)</option>
-                    <option value="java">Java 17</option>
-                  </select>
-                </div>
-
-                <div className="flex items-center gap-2">
+            {/* Left Pane Drawer: Tabbed Panel for Chat, Participants, Evaluation */}
+            <div className="flex-1 rounded-xl bg-zinc-900/60 border border-zinc-800/80 flex flex-col overflow-hidden">
+              {/* Tab Navigation Header */}
+              <div className="h-10 px-3 bg-zinc-950/60 border-b border-zinc-800/80 flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-1">
                   <button
-                    onClick={() => {
-                      if (challenge?.starterCode?.[selectedLanguage]) {
-                        handleCodeChange(challenge.starterCode[selectedLanguage]);
-                      }
-                    }}
-                    className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white text-xs transition-colors"
-                    title="Reset to challenge starter code"
+                    onClick={() => { setLeftTab('chat'); setUnreadChatCount(0); }}
+                    className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
+                      leftTab === 'chat' 
+                        ? 'bg-zinc-800 text-violet-300' 
+                        : 'text-zinc-400 hover:text-white'
+                    }`}
                   >
-                    Reset
-                  </button>
-
-                  <button
-                    onClick={handleRunCode}
-                    disabled={isRunningCode}
-                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold text-xs shadow-md shadow-emerald-600/20 transition-all hover:scale-102"
-                  >
-                    {isRunningCode ? (
-                      <div className="w-3.5 h-3.5 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                    ) : (
-                      <Play className="w-3.5 h-3.5 fill-current" />
+                    <MessageSquare className="w-3.5 h-3.5" />
+                    <span>Chat</span>
+                    {unreadChatCount > 0 && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-violet-500" />
                     )}
-                    <span>Run Code</span>
+                  </button>
+
+                  <button
+                    onClick={() => setLeftTab('participants')}
+                    className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
+                      leftTab === 'participants' 
+                        ? 'bg-zinc-800 text-violet-300' 
+                        : 'text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    <Users className="w-3.5 h-3.5" />
+                    <span>Participants ({participants.length})</span>
+                  </button>
+
+                  <button
+                    onClick={() => setLeftTab('evaluation')}
+                    className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
+                      leftTab === 'evaluation' 
+                        ? 'bg-zinc-800 text-violet-300' 
+                        : 'text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    <Award className="w-3.5 h-3.5" />
+                    <span>Rubric</span>
                   </button>
                 </div>
               </div>
 
-              {/* Monaco Editor Pane */}
-              <div className="flex-1 min-h-[220px] relative">
-                <Editor
-                  height="100%"
-                  language={selectedLanguage === 'cpp' ? 'cpp' : selectedLanguage}
-                  value={code}
-                  onChange={handleCodeChange}
-                  theme="vs-dark"
-                  options={{
-                    minimap: { enabled: false },
-                    fontSize: 13,
-                    fontFamily: 'JetBrains Mono, monospace',
-                    lineNumbers: 'on',
-                    scrollBeyondLastLine: false,
-                    automaticLayout: true,
-                    tabSize: 2,
-                    cursorBlinking: 'smooth',
-                    smoothScrolling: true,
-                  }}
-                />
+              {/* Tab 1: Live Chat */}
+              {leftTab === 'chat' && (
+                <div className="flex-1 flex flex-col overflow-hidden">
+                  <div className="flex-1 p-3 overflow-y-auto space-y-2 text-xs">
+                    {messages.map((m) => (
+                      <div key={m.id}>
+                        {m.role === 'system' ? (
+                          <div className="text-center my-1.5">
+                            <span className="px-2 py-0.5 rounded-full bg-zinc-950 text-zinc-500 text-[10px] border border-zinc-800">
+                              {m.text}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="p-2.5 rounded-lg bg-zinc-950 border border-zinc-800/80">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="font-semibold text-zinc-200">{m.sender}</span>
+                              <span className="text-[10px] text-zinc-500 font-mono">{m.timestamp}</span>
+                            </div>
+                            <p className="text-zinc-300 text-xs leading-relaxed">{m.text}</p>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    <div ref={chatBottomRef} />
+                  </div>
+
+                  <form onSubmit={handleSendMessage} className="p-2.5 bg-zinc-950 border-t border-zinc-800/80 flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Type a message to room..."
+                      value={chatInput}
+                      onChange={(e) => setChatInput(e.target.value)}
+                      className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/20"
+                    />
+                    <button
+                      type="submit"
+                      className="px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-xs font-medium cursor-pointer"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                    </button>
+                  </form>
+                </div>
+              )}
+
+              {/* Tab 2: Participants Roster */}
+              {leftTab === 'participants' && (
+                <div className="flex-1 p-3 overflow-y-auto space-y-2 text-xs">
+                  {participants.map((p) => (
+                    <div key={p.id} className="p-2.5 rounded-lg bg-zinc-950 border border-zinc-800/80 flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-7 h-7 rounded-md bg-violet-600/20 text-violet-400 font-bold flex items-center justify-center text-xs">
+                          {p.name.slice(0, 2).toUpperCase()}
+                        </div>
+                        <div>
+                          <div className="font-medium text-zinc-200">{p.name}</div>
+                          <div className="text-[10px] text-zinc-500 capitalize">{p.role}</div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 text-zinc-400">
+                        <Mic className="w-3.5 h-3.5 text-emerald-400" />
+                        <VideoIcon className="w-3.5 h-3.5 text-emerald-400" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Tab 3: Evaluation Rubric */}
+              {leftTab === 'evaluation' && (
+                <form onSubmit={handleSubmitEvaluation} className="flex-1 p-3.5 overflow-y-auto space-y-3.5 text-xs">
+                  <div>
+                    <h4 className="font-semibold text-zinc-200">Interviewer Rubric Scoring</h4>
+                    <p className="text-[11px] text-zinc-400">Score candidate on key hiring criteria 1 to 5.</p>
+                  </div>
+
+                  {evalSuccess && (
+                    <div className="p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 shrink-0" />
+                      <span>Evaluation saved successfully!</span>
+                    </div>
+                  )}
+
+                  {[
+                    { key: 'problemSolving', label: 'Problem Solving & Algorithms' },
+                    { key: 'coding', label: 'Coding Proficiency & Quality' },
+                    { key: 'systemDesign', label: 'Architecture & System Design' },
+                    { key: 'communication', label: 'Communication & Collaboration' }
+                  ].map((crit) => (
+                    <div key={crit.key} className="space-y-1">
+                      <div className="flex justify-between font-medium text-zinc-300">
+                        <span>{crit.label}</span>
+                        <span className="font-bold text-violet-400">{rubric[crit.key]}/5</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="1"
+                        max="5"
+                        step="1"
+                        value={rubric[crit.key]}
+                        onChange={(e) => setRubric({ ...rubric, [crit.key]: Number(e.target.value) })}
+                        className="w-full accent-violet-600 h-1.5 bg-zinc-800 rounded-lg cursor-pointer"
+                      />
+                    </div>
+                  ))}
+
+                  <div>
+                    <label className="block font-medium text-zinc-300 mb-1">Final Recommendation</label>
+                    <select
+                      value={recommendation}
+                      onChange={(e) => setRecommendation(e.target.value)}
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-xs text-zinc-100"
+                    >
+                      <option value="strong_hire">Strong Hire (Top Tier)</option>
+                      <option value="hire">Hire (Meets All Standards)</option>
+                      <option value="leaning_no">Leaning No</option>
+                      <option value="strong_no">Strong No</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block font-medium text-zinc-300 mb-1">Feedback Notes</label>
+                    <textarea
+                      rows="2"
+                      value={feedback}
+                      onChange={(e) => setFeedback(e.target.value)}
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-xs text-zinc-100 placeholder-zinc-500"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={evalSubmitting}
+                    className="w-full py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-medium text-xs transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    {evalSubmitting && <div className="w-3 h-3 border-2 border-white/20 border-t-white rounded-full animate-spin" />}
+                    <span>Submit Evaluation</span>
+                  </button>
+                </form>
+              )}
+            </div>
+
+          </Panel>
+
+          {/* Resizer Handle */}
+          <Separator className="w-1.5 bg-zinc-900 hover:bg-violet-600/60 active:bg-violet-600 transition-colors cursor-col-resize flex items-center justify-center group">
+            <div className="w-0.5 h-6 bg-zinc-700 group-hover:bg-white rounded-full transition-colors" />
+          </Separator>
+
+          {/* Right Pane: Collapsible Question Panel + Monaco Editor (vs-dark) + Fixed Bottom Execution Bar */}
+          <Panel defaultSize={62} minSize={45} className="flex flex-col bg-zinc-950 overflow-hidden relative">
+            
+            {/* Top Collapsible Challenge Statement Panel */}
+            <div className="border-b border-zinc-800/80 bg-zinc-900/60 transition-all duration-200">
+              <div 
+                onClick={() => setIsProblemCollapsed(!isProblemCollapsed)}
+                className="h-10 px-4 flex items-center justify-between cursor-pointer hover:bg-zinc-850 transition-colors"
+              >
+                <div className="flex items-center gap-2.5">
+                  <FileCode2 className="w-4 h-4 text-violet-400" />
+                  <span className="text-xs font-semibold text-white">
+                    {challenge?.title || 'Algorithmic Problem Challenge'}
+                  </span>
+                  {challenge?.difficulty && (
+                    <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                      {challenge.difficulty}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 text-zinc-400">
+                  <span className="text-[11px] hidden sm:inline text-zinc-500">
+                    {isProblemCollapsed ? 'Show Details' : 'Collapse'}
+                  </span>
+                  {isProblemCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+                </div>
               </div>
 
-              {/* Execution Console Tabs & Output Area */}
-              <div className="h-44 bg-[#090C12] border-t border-slate-800 flex flex-col shrink-0">
-                {/* Console tabs */}
-                <div className="h-8 px-3 bg-slate-950/60 border-b border-slate-800 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
+              {!isProblemCollapsed && challenge && (
+                <div className="p-4 pt-1 max-h-48 overflow-y-auto space-y-3 text-xs text-zinc-300 border-t border-zinc-800/60">
+                  <p className="leading-relaxed text-zinc-300 whitespace-pre-wrap">
+                    {challenge.description}
+                  </p>
+
+                  {challenge.examples?.length > 0 && (
+                    <div className="space-y-1.5">
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Examples</span>
+                      {challenge.examples.map((ex, idx) => (
+                        <div key={idx} className="p-2 rounded-lg bg-zinc-950 border border-zinc-800 font-mono text-[11px]">
+                          <div><strong className="text-emerald-400">Input:</strong> {ex.input}</div>
+                          <div><strong className="text-cyan-400">Output:</strong> {ex.output}</div>
+                          {ex.explanation && <div className="text-zinc-400 mt-1 font-sans text-xs">{ex.explanation}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {challenge.constraints?.length > 0 && (
+                    <div>
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 mb-1 block">Constraints</span>
+                      <ul className="list-disc list-inside space-y-0.5 text-zinc-400 text-xs">
+                        {challenge.constraints.map((c, i) => <li key={i}>{c}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Monaco Editor Pane (vs-dark theme with zero default white margins) */}
+            <div className="flex-1 relative overflow-hidden bg-[#1e1e1e]">
+              <Editor
+                height="100%"
+                language={selectedLanguage === 'cpp' ? 'cpp' : selectedLanguage}
+                value={code}
+                onChange={handleCodeChange}
+                theme="vs-dark"
+                options={{
+                  minimap: { enabled: false },
+                  fontSize: 13,
+                  fontFamily: 'JetBrains Mono, monospace',
+                  lineNumbers: 'on',
+                  scrollBeyondLastLine: false,
+                  automaticLayout: true,
+                  tabSize: 2,
+                  cursorBlinking: 'smooth',
+                  smoothScrolling: true,
+                  padding: { top: 12, bottom: 12 }
+                }}
+              />
+            </div>
+
+            {/* Execution Console Tabs & Output Area */}
+            {showConsole && (
+              <div className="h-44 bg-zinc-950 border-t border-zinc-800 flex flex-col shrink-0">
+                <div className="h-8 px-3 bg-zinc-900/80 border-b border-zinc-800 flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
                     <button
                       onClick={() => setActiveConsoleTab('tests')}
-                      className={`text-xs px-2.5 py-1 rounded font-medium flex items-center gap-1.5 transition-colors ${
+                      className={`text-xs px-2.5 py-0.5 rounded font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
                         activeConsoleTab === 'tests'
-                          ? 'bg-slate-800 text-emerald-400 font-semibold'
-                          : 'text-slate-400 hover:text-white'
+                          ? 'bg-zinc-800 text-violet-300 font-semibold'
+                          : 'text-zinc-400 hover:text-white'
                       }`}
                     >
                       <CheckCircle2 className="w-3.5 h-3.5" />
@@ -870,10 +1110,10 @@ export default function InterviewRoom() {
 
                     <button
                       onClick={() => setActiveConsoleTab('output')}
-                      className={`text-xs px-2.5 py-1 rounded font-medium flex items-center gap-1.5 transition-colors ${
+                      className={`text-xs px-2.5 py-0.5 rounded font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
                         activeConsoleTab === 'output'
-                          ? 'bg-slate-800 text-emerald-400 font-semibold'
-                          : 'text-slate-400 hover:text-white'
+                          ? 'bg-zinc-800 text-violet-300 font-semibold'
+                          : 'text-zinc-400 hover:text-white'
                       }`}
                     >
                       <Terminal className="w-3.5 h-3.5" />
@@ -882,24 +1122,31 @@ export default function InterviewRoom() {
 
                     <button
                       onClick={() => setActiveConsoleTab('stdin')}
-                      className={`text-xs px-2.5 py-1 rounded font-medium flex items-center gap-1.5 transition-colors ${
+                      className={`text-xs px-2.5 py-0.5 rounded font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
                         activeConsoleTab === 'stdin'
-                          ? 'bg-slate-800 text-emerald-400 font-semibold'
-                          : 'text-slate-400 hover:text-white'
+                          ? 'bg-zinc-800 text-violet-300 font-semibold'
+                          : 'text-zinc-400 hover:text-white'
                       }`}
                     >
                       <span>Custom Input</span>
                     </button>
                   </div>
 
-                  {executionResult && (
-                    <span className="text-[10px] text-slate-500 font-mono">
-                      Runtime: {executionResult.executionTimeMs}ms • Memory: {executionResult.memoryUsageBytes ? `${Math.round(executionResult.memoryUsageBytes/1024)}KB` : '18MB'}
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {executionResult && (
+                      <span className="text-[10px] text-zinc-500 font-mono">
+                        Runtime: {executionResult.executionTimeMs}ms
+                      </span>
+                    )}
+                    <button
+                      onClick={() => setShowConsole(false)}
+                      className="text-zinc-500 hover:text-zinc-300 text-xs px-1"
+                    >
+                      ✕
+                    </button>
+                  </div>
                 </div>
 
-                {/* Console Content */}
                 <div className="flex-1 p-3 overflow-y-auto text-xs font-mono">
                   {activeConsoleTab === 'tests' && (
                     <div className="space-y-2">
@@ -910,36 +1157,36 @@ export default function InterviewRoom() {
                             className={`p-2 rounded-lg border flex items-center justify-between ${
                               t.passed
                                 ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300'
-                                : 'bg-rose-500/10 border-rose-500/20 text-rose-300'
+                                : 'bg-red-500/10 border-red-500/20 text-red-300'
                             }`}
                           >
                             <div className="flex items-center gap-2">
-                              {t.passed ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <XCircle className="w-4 h-4 text-rose-400" />}
+                              {t.passed ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <XCircle className="w-4 h-4 text-red-400" />}
                               <span className="font-semibold">{t.name || `Test Case ${idx + 1}`}</span>
                             </div>
-                            <div className="text-[11px] text-slate-400">
-                              Input: <span className="text-slate-200">{t.input}</span> | Expected: <span className="text-emerald-400">{t.expected}</span>
+                            <div className="text-[11px] text-zinc-400">
+                              Input: <span className="text-zinc-200">{t.input}</span> | Expected: <span className="text-emerald-400">{t.expected}</span>
                             </div>
                           </div>
                         ))
                       ) : (
-                        <div className="text-slate-500 text-center py-6">
-                          Click "Run Code" above to execute test cases against the sandbox runner.
+                        <div className="text-zinc-500 text-center py-6">
+                          Click "Run Code" in the command bar below to execute test suites.
                         </div>
                       )}
                     </div>
                   )}
 
                   {activeConsoleTab === 'output' && (
-                    <div className="whitespace-pre-wrap font-mono text-[11px] text-slate-300">
+                    <div className="whitespace-pre-wrap font-mono text-[11px] text-zinc-300">
                       {executionResult ? (
                         executionResult.stderr ? (
-                          <span className="text-rose-400">{executionResult.stderr}</span>
+                          <span className="text-red-400">{executionResult.stderr}</span>
                         ) : (
-                          executionResult.stdout || 'Program executed with exit code 0 and no standard output.'
+                          executionResult.stdout || 'Program executed with exit code 0.'
                         )
                       ) : (
-                        <span className="text-slate-500">Standard output and error logs will appear here.</span>
+                        <span className="text-zinc-500">Standard output and error logs will appear here.</span>
                       )}
                     </div>
                   )}
@@ -948,361 +1195,73 @@ export default function InterviewRoom() {
                     <textarea
                       value={customInput}
                       onChange={(e) => setCustomInput(e.target.value)}
-                      placeholder="Enter custom standard input (stdin) for code execution..."
-                      className="w-full h-full bg-transparent resize-none focus:outline-none text-slate-200 placeholder-slate-600 font-mono text-xs"
+                      placeholder="Enter custom standard input (stdin)..."
+                      className="w-full h-full bg-transparent resize-none focus:outline-none text-zinc-200 placeholder-zinc-600 font-mono text-xs"
                     />
                   )}
                 </div>
               </div>
-
-            </div>
-          )}
-
-        </div>
-
-        {/* RIGHT COLLAPSIBLE DRAWER (Problem / Chat / Participants / Evaluation) */}
-        {activeSidePanel && (
-          <aside className="w-80 md:w-96 bg-[#0B0F19] border-l border-slate-800 flex flex-col shrink-0 z-20 shadow-2xl">
-            
-            {/* Drawer Header Tabs */}
-            <div className="h-11 px-3 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
-                {activeSidePanel === 'problem' && <><FileCode2 className="w-4 h-4 text-emerald-400" /> Problem Statement</>}
-                {activeSidePanel === 'chat' && <><MessageSquare className="w-4 h-4 text-blue-400" /> Room Chat</>}
-                {activeSidePanel === 'participants' && <><Users className="w-4 h-4 text-purple-400" /> Participants ({participants.length})</>}
-                {activeSidePanel === 'evaluation' && <><Award className="w-4 h-4 text-amber-400" /> Evaluation Rubric</>}
-              </span>
-              <button
-                onClick={() => setActiveSidePanel(null)}
-                className="p-1 rounded text-slate-400 hover:text-white"
-                title="Close Drawer"
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* TAB 1: PROBLEM DETAILS */}
-            {activeSidePanel === 'problem' && (
-              <div className="flex-1 p-4 overflow-y-auto space-y-4 text-xs">
-                {challenge ? (
-                  <>
-                    <div className="flex items-center justify-between">
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                        {challenge.difficulty || 'Easy'}
-                      </span>
-                      <span className="text-[11px] text-slate-500">Time: 1000ms</span>
-                    </div>
-
-                    <h3 className="text-base font-bold text-white">{challenge.title}</h3>
-
-                    <div className="p-3 rounded-xl bg-slate-950 border border-slate-800/80 leading-relaxed text-slate-300 whitespace-pre-wrap">
-                      {challenge.description}
-                    </div>
-
-                    {challenge.examples?.length > 0 && (
-                      <div className="space-y-2">
-                        <div className="text-[11px] font-semibold uppercase text-slate-400">Examples</div>
-                        {challenge.examples.map((ex, idx) => (
-                          <div key={idx} className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 text-[11px] font-mono">
-                            <div><strong className="text-emerald-400">Input:</strong> {ex.input}</div>
-                            <div><strong className="text-cyan-400">Output:</strong> {ex.output}</div>
-                            {ex.explanation && <div className="text-slate-400 mt-1 font-sans text-xs">{ex.explanation}</div>}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {challenge.constraints?.length > 0 && (
-                      <div>
-                        <div className="text-[11px] font-semibold uppercase text-slate-400 mb-1">Constraints</div>
-                        <ul className="list-disc list-inside space-y-1 text-slate-400 text-xs">
-                          {challenge.constraints.map((c, i) => <li key={i}>{c}</li>)}
-                        </ul>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div className="text-slate-500 text-center py-10">No challenge attached to this interview session.</div>
-                )}
-              </div>
             )}
 
-            {/* TAB 2: LIVE CHAT */}
-            {activeSidePanel === 'chat' && (
-              <div className="flex-1 flex flex-col overflow-hidden">
-                <div className="flex-1 p-3 overflow-y-auto space-y-3">
-                  {messages.map((m) => (
-                    <div key={m.id} className="text-xs">
-                      {m.role === 'system' ? (
-                        <div className="text-center my-2">
-                          <span className="px-2 py-1 rounded-full bg-slate-800/80 text-slate-400 text-[10px] border border-slate-700/60">
-                            {m.text}
-                          </span>
-                        </div>
-                      ) : (
-                        <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="font-semibold text-slate-200">{m.sender}</span>
-                            <span className="text-[10px] text-slate-500">{m.timestamp}</span>
-                          </div>
-                          <p className="text-slate-300 text-xs leading-relaxed">{m.text}</p>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                  <div ref={chatBottomRef} />
-                </div>
-
-                <form onSubmit={handleSendMessage} className="p-3 bg-slate-950 border-t border-slate-800 flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="Send message to room..."
-                    value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
-                    className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-                  />
-                  <button
-                    type="submit"
-                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold"
-                  >
-                    <Send className="w-3.5 h-3.5" />
-                  </button>
-                </form>
-              </div>
-            )}
-
-            {/* TAB 3: PARTICIPANTS ROSTER */}
-            {activeSidePanel === 'participants' && (
-              <div className="flex-1 p-3 overflow-y-auto space-y-2 text-xs">
-                {participants.map((p) => (
-                  <div key={p.id} className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 font-bold flex items-center justify-center text-xs">
-                        {p.name.slice(0, 2).toUpperCase()}
-                      </div>
-                      <div>
-                        <div className="font-semibold text-slate-200">{p.name}</div>
-                        <div className="text-[10px] text-slate-400 capitalize">{p.role}</div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Mic className="w-3.5 h-3.5 text-emerald-400" />
-                      <VideoIcon className="w-3.5 h-3.5 text-emerald-400" />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* TAB 4: EVALUATION RUBRIC */}
-            {activeSidePanel === 'evaluation' && (
-              <form onSubmit={handleSubmitEvaluation} className="flex-1 p-4 overflow-y-auto space-y-4 text-xs">
-                <div>
-                  <h4 className="font-semibold text-slate-200">Interviewer Rubric Scoring</h4>
-                  <p className="text-[11px] text-slate-400">Score candidate on key hiring criteria 1 to 5.</p>
-                </div>
-
-                {evalSuccess && (
-                  <div className="p-2.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 shrink-0" />
-                    <span>Evaluation saved successfully!</span>
-                  </div>
-                )}
-
-                {/* Criteria Sliders */}
-                {[
-                  { key: 'problemSolving', label: 'Problem Solving & Algorithmic Approach' },
-                  { key: 'coding', label: 'Coding Proficiency & Code Quality' },
-                  { key: 'systemDesign', label: 'Architecture & System Design' },
-                  { key: 'communication', label: 'Communication & Collaboration' }
-                ].map((crit) => (
-                  <div key={crit.key} className="space-y-1">
-                    <div className="flex justify-between font-medium text-slate-300">
-                      <span>{crit.label}</span>
-                      <span className="font-bold text-emerald-400">{rubric[crit.key]}/5</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="1"
-                      max="5"
-                      step="1"
-                      value={rubric[crit.key]}
-                      onChange={(e) => setRubric({ ...rubric, [crit.key]: Number(e.target.value) })}
-                      className="w-full accent-emerald-500 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
-                    />
-                  </div>
-                ))}
-
-                {/* Recommendation */}
-                <div>
-                  <label className="block font-semibold text-slate-300 mb-1">Final Recommendation</label>
-                  <select
-                    value={recommendation}
-                    onChange={(e) => setRecommendation(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-xs text-slate-100"
-                  >
-                    <option value="strong_hire">Strong Hire (Top Tier)</option>
-                    <option value="hire">Hire (Meets All Standards)</option>
-                    <option value="leaning_no">Leaning No</option>
-                    <option value="strong_no">Strong No</option>
-                  </select>
-                </div>
-
-                {/* Candidate Feedback */}
-                <div>
-                  <label className="block font-semibold text-slate-300 mb-1">Candidate Visible Feedback</label>
-                  <textarea
-                    rows="3"
-                    value={feedback}
-                    onChange={(e) => setFeedback(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-xs text-slate-100 placeholder-slate-500"
-                  />
-                </div>
-
-                {/* Private Notes */}
-                <div>
-                  <label className="block font-semibold text-amber-400 mb-1">Confidential Hiring Notes</label>
-                  <textarea
-                    rows="3"
-                    value={privateNotes}
-                    onChange={(e) => setPrivateNotes(e.target.value)}
-                    className="w-full bg-slate-950 border border-amber-500/30 rounded-lg p-2 text-xs text-slate-100"
-                  />
-                </div>
+            {/* Fixed Bottom Execution Command Bar */}
+            <div className="h-12 px-4 bg-zinc-900 border-t border-zinc-800 flex items-center justify-between shrink-0 z-10">
+              <div className="flex items-center gap-3">
+                <select
+                  value={selectedLanguage}
+                  onChange={(e) => {
+                    setSelectedLanguage(e.target.value);
+                    if (socketRef.current) {
+                      socketRef.current.emit('editor:change', { code, language: e.target.value });
+                    }
+                  }}
+                  className="bg-zinc-950 border border-zinc-700 rounded-lg px-2.5 py-1 text-xs text-zinc-200 focus:outline-none focus:border-violet-500 font-medium cursor-pointer"
+                >
+                  <option value="javascript">JavaScript (Node.js)</option>
+                  <option value="python">Python 3</option>
+                  <option value="cpp">C++ (GCC)</option>
+                  <option value="java">Java 17</option>
+                </select>
 
                 <button
-                  type="submit"
-                  disabled={evalSubmitting}
-                  className="w-full py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold shadow-lg shadow-emerald-600/20 text-xs transition-all flex items-center justify-center gap-1.5"
+                  onClick={() => setShowConsole(!showConsole)}
+                  className="text-xs text-zinc-400 hover:text-white transition-colors cursor-pointer"
                 >
-                  {evalSubmitting && <div className="w-3 h-3 border-2 border-white/20 border-t-white rounded-full animate-spin" />}
-                  <span>Submit Evaluation Dossier</span>
+                  {showConsole ? 'Hide Console' : 'Show Console'}
                 </button>
-              </form>
-            )}
+              </div>
 
-          </aside>
-        )}
+              <div className="flex items-center gap-2.5">
+                <button
+                  onClick={() => {
+                    if (challenge?.starterCode?.[selectedLanguage]) {
+                      handleCodeChange(challenge.starterCode[selectedLanguage]);
+                      toast.info('Reset code template');
+                    }
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium transition-colors cursor-pointer"
+                >
+                  Reset Template
+                </button>
 
+                <button
+                  onClick={handleRunCode}
+                  disabled={isRunningCode}
+                  className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white font-medium text-xs shadow-sm hover:shadow-violet-600/25 transition-all cursor-pointer"
+                >
+                  {isRunningCode ? (
+                    <div className="w-3.5 h-3.5 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                  )}
+                  <span>{isRunningCode ? 'Running...' : 'Run Code'}</span>
+                </button>
+              </div>
+            </div>
+
+          </Panel>
+
+        </Group>
       </div>
-
-      {/* 3. GOOGLE MEET STYLE BOTTOM FLOATING DOCK */}
-      <footer className="h-16 px-4 bg-[#0B0F19] border-t border-slate-800/80 flex items-center justify-between shrink-0 z-30">
-        
-        {/* Left Side: Meeting Details Info */}
-        <div className="hidden md:flex items-center gap-3 text-xs text-slate-400">
-          <span className="font-mono text-emerald-400">{meetingCode}</span>
-          <span>•</span>
-          <span>InterviewHub Mesh Active</span>
-        </div>
-
-        {/* Center: Main Media Action Pills */}
-        <div className="flex items-center gap-3 mx-auto md:mx-0">
-          {/* Mic Button */}
-          <button
-            onClick={toggleMic}
-            className={`p-3 rounded-full transition-all shadow-lg ${
-              isMicOn
-                ? 'bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700'
-                : 'bg-rose-600 hover:bg-rose-500 text-white animate-pulse'
-            }`}
-            title={isMicOn ? 'Mute Microphone' : 'Unmute Microphone'}
-          >
-            {isMicOn ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
-          </button>
-
-          {/* Camera Button */}
-          <button
-            onClick={toggleCamera}
-            className={`p-3 rounded-full transition-all shadow-lg ${
-              isCameraOn
-                ? 'bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700'
-                : 'bg-rose-600 hover:bg-rose-500 text-white'
-            }`}
-            title={isCameraOn ? 'Turn Camera Off' : 'Turn Camera On'}
-          >
-            {isCameraOn ? <VideoIcon className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}
-          </button>
-
-          {/* Screen Share */}
-          <button
-            onClick={toggleScreenShare}
-            className={`p-3 rounded-full transition-all shadow-lg ${
-              isScreenSharing
-                ? 'bg-blue-600 text-white border border-blue-400'
-                : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700'
-            }`}
-            title="Share Screen"
-          >
-            <Share2 className="w-4 h-4" />
-          </button>
-
-          {/* Leave Call (Red Google Meet Style) */}
-          <button
-            onClick={() => {
-              if (window.confirm('Are you sure you want to exit this interview room?')) {
-                navigate('/dashboard');
-              }
-            }}
-            className="px-5 py-2.5 rounded-full bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs flex items-center gap-2 shadow-lg shadow-rose-600/30 transition-all hover:scale-105"
-            title="Leave Call"
-          >
-            <PhoneOff className="w-4 h-4" />
-            <span className="hidden sm:inline">Leave Room</span>
-          </button>
-        </div>
-
-        {/* Right Side: Side Drawer Toggles */}
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => setActiveSidePanel(activeSidePanel === 'problem' ? null : 'problem')}
-            className={`p-2 rounded-xl transition-colors ${
-              activeSidePanel === 'problem' ? 'bg-slate-800 text-emerald-400' : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-            }`}
-            title="Toggle Problem Statement"
-          >
-            <FileCode2 className="w-4 h-4" />
-          </button>
-
-          <button
-            onClick={() => {
-              setActiveSidePanel(activeSidePanel === 'chat' ? null : 'chat');
-              setUnreadChatCount(0);
-            }}
-            className={`p-2 rounded-xl relative transition-colors ${
-              activeSidePanel === 'chat' ? 'bg-slate-800 text-blue-400' : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-            }`}
-            title="Toggle Live Chat"
-          >
-            <MessageSquare className="w-4 h-4" />
-            {unreadChatCount > 0 && (
-              <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-blue-500" />
-            )}
-          </button>
-
-          <button
-            onClick={() => setActiveSidePanel(activeSidePanel === 'participants' ? null : 'participants')}
-            className={`p-2 rounded-xl transition-colors ${
-              activeSidePanel === 'participants' ? 'bg-slate-800 text-purple-400' : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-            }`}
-            title="Toggle Participants"
-          >
-            <Users className="w-4 h-4" />
-          </button>
-
-          {/* Evaluation Rubric Toggle */}
-          <button
-            onClick={() => setActiveSidePanel(activeSidePanel === 'evaluation' ? null : 'evaluation')}
-            className={`p-2 rounded-xl transition-colors ${
-              activeSidePanel === 'evaluation' ? 'bg-slate-800 text-amber-400' : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-            }`}
-            title="Toggle Evaluation Rubric"
-          >
-            <Award className="w-4 h-4" />
-          </button>
-        </div>
-
-      </footer>
 
     </div>
   );

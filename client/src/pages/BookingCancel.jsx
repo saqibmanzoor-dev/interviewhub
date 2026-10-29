@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { XCircle, AlertTriangle, ArrowRight, CheckCircle2, ChevronLeft } from 'lucide-react';
+import { toast } from 'sonner';
 import api from '../services/api';
 
 export default function BookingCancel() {
@@ -43,9 +44,12 @@ export default function BookingCancel() {
       const res = await api.post(`/bookings/${code}/cancel`, { reason });
       if (res.data?.success) {
         setCancelled(true);
+        toast.success('Interview cancelled successfully');
       }
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to cancel booking.');
+      const errMsg = err.response?.data?.message || 'Failed to cancel booking.';
+      setError(errMsg);
+      toast.error(errMsg);
     } finally {
       setSubmitting(false);
     }
@@ -53,16 +57,19 @@ export default function BookingCancel() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#0B0F19] flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#0B0F19] text-slate-100 py-16 px-4">
-      <div className="max-w-md mx-auto bg-[#111827] border border-slate-800 rounded-3xl p-8 sm:p-10 shadow-2xl">
-        <Link to={`/booking/${code}/confirmation`} className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white mb-6">
+    <div className="min-h-screen bg-zinc-950 text-zinc-100 py-16 px-4 selection:bg-violet-500/30 selection:text-violet-300">
+      <div className="max-w-md mx-auto bg-zinc-900/90 border border-zinc-800 rounded-2xl p-8 sm:p-10 shadow-2xl backdrop-blur-xl">
+        <Link 
+          to={`/booking/${code}/confirmation`} 
+          className="inline-flex items-center gap-1.5 text-xs text-zinc-400 hover:text-white mb-6 transition-colors"
+        >
           <ChevronLeft className="w-4 h-4" /> Back to booking
         </Link>
 
@@ -72,12 +79,12 @@ export default function BookingCancel() {
               <CheckCircle2 className="w-7 h-7" />
             </div>
             <h1 className="text-xl font-bold text-white mb-2">Booking Cancelled</h1>
-            <p className="text-xs text-slate-400 mb-6">
+            <p className="text-xs text-zinc-400 mb-6 leading-relaxed">
               This interview has been cancelled and the time slot has been freed on the calendar. An email notification has been dispatched to all participants.
             </p>
             <Link
               to="/"
-              className="inline-block px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-semibold rounded-xl text-xs transition-colors"
+              className="inline-block px-5 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white font-medium rounded-lg text-xs transition-colors"
             >
               Return Home
             </Link>
@@ -90,39 +97,39 @@ export default function BookingCancel() {
               </div>
               <div>
                 <h1 className="text-xl font-bold text-white">Cancel Interview</h1>
-                <p className="text-xs text-slate-400">Release reserved slot for {booking?.title}</p>
+                <p className="text-xs text-zinc-400">Release reserved slot for {booking?.title}</p>
               </div>
             </div>
 
             {error && (
-              <div className="mb-6 p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs">
+              <div className="mb-6 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-xs">
                 {error}
               </div>
             )}
 
             <form onSubmit={handleCancel} className="space-y-4">
               <div>
-                <label className="text-xs font-semibold text-slate-300 block mb-1">Reason for Cancellation (Optional)</label>
+                <label className="text-xs font-medium text-zinc-300 block mb-1.5">Reason for Cancellation (Optional)</label>
                 <textarea
                   rows={3}
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                   placeholder="Let the interviewer know why you need to cancel..."
-                  className="w-full bg-[#1E293B] border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-red-500"
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3.5 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/20 transition-all"
                 />
               </div>
 
               <div className="pt-2 flex items-center justify-end gap-3">
                 <Link
                   to={`/booking/${code}/confirmation`}
-                  className="px-4 py-2.5 text-xs text-slate-400 hover:text-white"
+                  className="px-4 py-2.5 text-xs text-zinc-400 hover:text-white"
                 >
                   Never mind
                 </Link>
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="px-5 py-2.5 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white font-bold rounded-xl text-xs transition-all shadow-lg shadow-red-500/20"
+                  className="px-5 py-2.5 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white font-medium rounded-lg text-xs transition-all shadow-sm flex items-center gap-2 cursor-pointer"
                 >
                   {submitting ? 'Cancelling...' : 'Confirm Cancellation'}
                 </button>

@@ -28,6 +28,7 @@ import Evaluations from './pages/Evaluations';
 import AdminConsole from './pages/AdminConsole';
 import Settings from './pages/Settings';
 import InterviewRoom from './pages/InterviewRoom';
+import { Toaster } from 'sonner';
 
 import { useAuthStore } from './store/authStore';
 
@@ -44,17 +45,31 @@ export default function App() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#0B0F19] flex items-center justify-center">
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-10 h-10 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin" />
-          <span className="text-xs text-slate-400 font-medium">Initializing InterviewHub...</span>
+          <div className="w-8 h-8 border-2 border-violet-500/20 border-t-violet-500 rounded-full animate-spin" />
+          <span className="text-xs text-zinc-500 font-medium tracking-wide">Initializing InterviewHub...</span>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#0B0F19] text-slate-100 flex flex-col font-sans">
+    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col font-sans selection:bg-violet-500/30 selection:text-violet-300 antialiased">
+      <Toaster 
+        position="bottom-right" 
+        theme="dark" 
+        toastOptions={{
+          style: {
+            background: '#18181b',
+            border: '1px solid #27272a',
+            color: '#f4f4f5',
+            fontFamily: 'inherit'
+          }
+        }} 
+        richColors 
+        closeButton 
+      />
       <Navbar />
       <main className="flex-1">
         <Routes>

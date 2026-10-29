@@ -3,49 +3,73 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    color-scheme: dark;
+  }
   body {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background-color: #09090b; /* zinc-950 */
+    color: #f4f4f5; /* zinc-100 */
+  }
+  h1, h2, h3, h4, h5, h6 {
+    letter-spacing: -0.025em; /* tracking-tight */
+  }
+  p {
+    line-height: 1.625; /* leading-relaxed */
   }
   code, pre, .monaco-editor {
     font-family: 'JetBrains Mono', monospace;
   }
 }
 
-/* Custom Scrollbars */
+/* Custom Linear-style Minimal Scrollbars */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.6);
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(71, 85, 105, 0.5);
+  background: rgba(113, 113, 122, 0.25); /* zinc-500/25 */
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(16, 185, 129, 0.7);
+  background: rgba(168, 85, 247, 0.5); /* violet-500/50 */
 }
 
-/* Glassmorphism utilities */
-.glass-panel {
-  background: rgba(17, 24, 39, 0.75);
+/* Accessible Global Focus Utility */
+.focus-ring {
+  @apply focus-visible:ring-2 focus-visible:ring-violet-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 outline-none;
+}
+
+/* Glass & Surface Card Utility */
+.surface-card {
+  background: rgba(24, 24, 27, 0.7); /* zinc-900/70 */
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(63, 63, 70, 0.4); /* zinc-700/40 */
 }
 
-.glass-panel-subtle {
-  background: rgba(15, 23, 42, 0.5);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+.surface-card-hover {
+  @apply transition-all duration-200 hover:border-zinc-700 hover:bg-zinc-900/90;
 }
 
-/* Glow effects */
-.glow-emerald {
-  box-shadow: 0 0 25px -5px rgba(16, 185, 129, 0.25);
+/* Glow Effects */
+.glow-violet {
+  box-shadow: 0 0 30px -5px rgba(139, 92, 246, 0.2);
 }
 
 .glow-active {
-  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.5);
+  box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.6);
+}
+
+/* Tooltip custom overrides */
+.recharts-default-tooltip {
+  background-color: #18181b !important;
+  border: 1px solid #27272a !important;
+  border-radius: 0.75rem !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5) !important;
+  color: #f4f4f5 !important;
+  padding: 10px 14px !important;
 }

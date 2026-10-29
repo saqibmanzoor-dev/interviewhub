@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { RefreshCw, Calendar, Clock, ArrowRight, AlertCircle, CheckCircle2, ChevronLeft } from 'lucide-react';
+import { toast } from 'sonner';
 import api from '../services/api';
 
 export default function BookingReschedule() {
@@ -73,12 +74,15 @@ export default function BookingReschedule() {
 
       if (res.data?.success) {
         setSuccess(true);
+        toast.success('Session rescheduled successfully');
         setTimeout(() => {
           navigate(`/booking/${code}/confirmation`);
         }, 1500);
       }
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to reschedule. Slot might be unavailable.');
+      const errMsg = err.response?.data?.message || 'Failed to reschedule. Slot might be unavailable.';
+      setError(errMsg);
+      toast.error(errMsg);
     } finally {
       setSubmitting(false);
     }
@@ -86,38 +90,41 @@ export default function BookingReschedule() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#0B0F19] flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#0B0F19] text-slate-100 py-16 px-4">
-      <div className="max-w-xl mx-auto bg-[#111827] border border-slate-800 rounded-3xl p-8 sm:p-10 shadow-2xl">
-        <Link to={`/booking/${code}/confirmation`} className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white mb-6">
+    <div className="min-h-screen bg-zinc-950 text-zinc-100 py-16 px-4 selection:bg-violet-500/30 selection:text-violet-300">
+      <div className="max-w-xl mx-auto bg-zinc-900/90 border border-zinc-800 rounded-2xl p-8 sm:p-10 shadow-2xl backdrop-blur-xl">
+        <Link 
+          to={`/booking/${code}/confirmation`} 
+          className="inline-flex items-center gap-1.5 text-xs text-zinc-400 hover:text-white mb-6 transition-colors"
+        >
           <ChevronLeft className="w-4 h-4" /> Back to booking confirmation
         </Link>
 
         <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-xl bg-violet-600/15 border border-violet-500/30 text-violet-400 flex items-center justify-center">
             <RefreshCw className="w-5 h-5" />
           </div>
           <div>
             <h1 className="text-xl font-bold text-white">Reschedule Interview</h1>
-            <p className="text-xs text-slate-400">Select a new date & time slot for {booking?.title}</p>
+            <p className="text-xs text-zinc-400">Select a new date & time slot for {booking?.title}</p>
           </div>
         </div>
 
         {error && (
-          <div className="mb-6 p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-center gap-2">
+          <div className="mb-6 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-center gap-2">
             <AlertCircle className="w-4 h-4 shrink-0" />
             <span>{error}</span>
           </div>
         )}
 
         {success && (
-          <div className="mb-6 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs flex items-center gap-2">
+          <div className="mb-6 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 shrink-0" />
             <span>Session rescheduled successfully! Redirecting...</span>
           </div>
@@ -125,21 +132,21 @@ export default function BookingReschedule() {
 
         <form onSubmit={handleReschedule} className="space-y-5">
           <div>
-            <label className="text-xs font-semibold text-slate-300 block mb-1.5">Pick New Date</label>
+            <label className="text-xs font-medium text-zinc-300 block mb-1.5">Pick New Date</label>
             <input
               type="date"
               required
               min={new Date().toISOString().split('T')[0]}
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
-              className="w-full bg-[#1E293B] border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500"
+              className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 transition-all cursor-pointer"
             />
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-slate-300 block mb-1.5">Select Available Time Slot</label>
+            <label className="text-xs font-medium text-zinc-300 block mb-1.5">Select Available Time Slot</label>
             {slots.length === 0 ? (
-              <p className="text-xs text-slate-500 bg-slate-900/60 p-4 rounded-xl border border-slate-800 text-center">
+              <p className="text-xs text-zinc-500 bg-zinc-950 p-4 rounded-xl border border-zinc-800 text-center">
                 No slots open on this date. Please select another date above.
               </p>
             ) : (
@@ -149,10 +156,10 @@ export default function BookingReschedule() {
                     key={s.start}
                     type="button"
                     onClick={() => setSelectedSlot(s)}
-                    className={`py-2 px-3 rounded-xl border text-xs font-semibold transition-all ${
+                    className={`py-2 px-3 rounded-lg border text-xs font-medium transition-all cursor-pointer ${
                       selectedSlot?.start === s.start
-                        ? 'bg-blue-600 text-white border-blue-500'
-                        : 'bg-slate-900 border-slate-700/80 text-blue-400 hover:border-blue-500/50'
+                        ? 'bg-violet-600 text-white border-violet-500 shadow-sm'
+                        : 'bg-zinc-950 border-zinc-800 text-zinc-300 hover:border-violet-500/50'
                     }`}
                   >
                     {s.timeLabel}
@@ -163,20 +170,20 @@ export default function BookingReschedule() {
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-slate-300 block mb-1.5">Reason for Rescheduling (Optional)</label>
+            <label className="text-xs font-medium text-zinc-300 block mb-1.5">Reason for Rescheduling (Optional)</label>
             <textarea
               rows={2}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               placeholder="e.g. Schedule conflict with college exam..."
-              className="w-full bg-[#1E293B] border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+              className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3.5 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 transition-all"
             />
           </div>
 
           <button
             type="submit"
             disabled={submitting || !selectedSlot}
-            className="w-full py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold rounded-xl text-xs transition-all shadow-lg shadow-blue-500/25 flex items-center justify-center gap-2"
+            className="w-full py-2.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white font-medium rounded-lg text-xs transition-all shadow-sm hover:shadow-violet-600/25 flex items-center justify-center gap-2 cursor-pointer focus-visible:ring-2 focus-visible:ring-violet-500/50 outline-none"
           >
             {submitting ? 'Updating Slot...' : 'Confirm Rescheduled Time'}
             <ArrowRight className="w-4 h-4" />

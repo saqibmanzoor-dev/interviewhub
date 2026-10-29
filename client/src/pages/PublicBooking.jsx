@@ -11,8 +11,11 @@ import {
   Sparkles,
   ChevronLeft,
   ChevronRight,
-  Video
+  Video,
+  ShieldCheck,
+  Check
 } from 'lucide-react';
+import { toast } from 'sonner';
 import api from '../services/api';
 
 const TIMEZONES = [
@@ -70,7 +73,6 @@ export default function PublicBooking() {
         const res = await api.get(endpoint);
         if (res.data?.data) {
           setEventType(res.data.data);
-          // Set host timezone as initial option if valid
           if (res.data.data.userId?.timezone) {
             setSelectedTimezone(res.data.data.userId.timezone);
           }
@@ -89,7 +91,7 @@ export default function PublicBooking() {
     }
   }, [slug, username]);
 
-  // When date changes, query available slots from backend
+  // When date changes, query available slots
   useEffect(() => {
     if (!selectedDate || !eventType) return;
 
@@ -113,7 +115,7 @@ export default function PublicBooking() {
 
   const handleBookingSubmit = async (e) => {
     e.preventDefault();
-    if (!selectedSlot || !candidateName || !candidateEmail) {
+    if (!selectedSlot || !candidateName.trim() || !candidateEmail.trim()) {
       setSubmitError('Please complete all required fields.');
       return;
     }
@@ -141,18 +143,20 @@ export default function PublicBooking() {
       });
 
       if (res.data?.success && res.data?.data?.meetingCode) {
+        toast.success('Interview booked successfully!');
         navigate(`/booking/${res.data.data.meetingCode}/confirmation`);
       } else {
         throw new Error(res.data?.message || 'Booking failed');
       }
     } catch (err) {
-      setSubmitError(err.response?.data?.message || 'Could not confirm booking. The slot may have just been claimed.');
+      const errMsg = err.response?.data?.message || 'Could not confirm booking. The slot may have just been claimed.';
+      setSubmitError(errMsg);
+      toast.error(errMsg);
     } finally {
       setSubmitting(false);
     }
   };
 
-  // Helper calendar days generator
   const getDaysInMonth = () => {
     const year = currentMonth.getFullYear();
     const month = currentMonth.getMonth();
@@ -171,10 +175,10 @@ export default function PublicBooking() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#0B0F19] flex items-center justify-center p-4">
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-4">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-10 h-10 border-3 border-blue-500/20 border-t-blue-500 rounded-full animate-spin" />
-          <span className="text-sm text-slate-400">Loading interview booking calendar...</span>
+          <div className="w-8 h-8 border-2 border-violet-500/20 border-t-violet-500 rounded-full animate-spin" />
+          <span className="text-xs text-zinc-400">Loading booking calendar...</span>
         </div>
       </div>
     );
@@ -182,12 +186,12 @@ export default function PublicBooking() {
 
   if (error || !eventType) {
     return (
-      <div className="min-h-screen bg-[#0B0F19] flex items-center justify-center p-4">
-        <div className="bg-[#111827] border border-slate-800 rounded-2xl p-8 max-w-md text-center">
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-4">
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 max-w-md text-center">
           <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
           <h2 className="text-xl font-bold text-white mb-2">Booking Page Unavailable</h2>
-          <p className="text-slate-400 text-sm mb-6">{error || 'This interview schedule link is invalid or inactive.'}</p>
-          <Link to="/" className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-semibold transition-all">
+          <p className="text-zinc-400 text-xs mb-6">{error || 'This interview schedule link is invalid or inactive.'}</p>
+          <Link to="/" className="px-5 py-2.5 bg-violet-600 hover:bg-violet-500 text-white rounded-lg text-xs font-medium transition-all">
             Return to Homepage
           </Link>
         </div>
@@ -198,67 +202,72 @@ export default function PublicBooking() {
   const host = eventType.userId || {};
 
   return (
-    <div className="min-h-screen bg-[#0B0F19] text-slate-100 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-5xl mx-auto">
-        {/* Main Card */}
-        <div className="bg-[#111827] border border-slate-800 rounded-2xl shadow-2xl overflow-hidden grid grid-cols-1 lg:grid-cols-12">
+    <div className="min-h-screen bg-zinc-950 text-zinc-100 py-10 px-4 sm:px-6 lg:px-8 selection:bg-violet-500/30 selection:text-violet-300">
+      <div className="max-w-6xl mx-auto">
+        {/* Cal.com-grade Two-Column Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           
-          {/* Left Column: Interviewer & Event Details */}
-          <div className="lg:col-span-4 p-8 border-b lg:border-b-0 lg:border-r border-slate-800 bg-[#0F172A]/70 flex flex-col justify-between">
-            <div>
-              {/* Host Avatar & Info */}
-              <div className="flex items-center gap-3.5 mb-6">
+          {/* Left Column: Sticky Host Profile & Event Specifications */}
+          <div className="lg:col-span-4 lg:sticky lg:top-8 bg-zinc-900/70 border border-zinc-800/80 rounded-2xl p-6 sm:p-7 shadow-sm backdrop-blur-xl space-y-6">
+            {/* Host Avatar & Info */}
+            <div className="flex items-center gap-3.5 pb-6 border-b border-zinc-800/80">
+              <div className="relative">
                 <img
                   src={host.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'}
                   alt={host.name}
-                  className="w-14 h-14 rounded-full border-2 border-slate-700 object-cover"
+                  className="w-14 h-14 rounded-full border border-zinc-700/80 object-cover"
                 />
-                <div>
-                  <h3 className="font-bold text-white text-base leading-tight">{host.name}</h3>
-                  <p className="text-xs text-slate-400 mt-0.5 line-clamp-1">{host.title || 'Technical Interviewer'}</p>
-                </div>
+                <span className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-zinc-900" title="Active Host" />
               </div>
-
-              <div className="space-y-4">
-                <div>
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-blue-400">Technical Round</span>
-                  <h1 className="text-2xl font-extrabold text-white mt-1 leading-snug">{eventType.title}</h1>
-                </div>
-
-                <div className="flex items-center gap-2 text-sm text-slate-300">
-                  <Clock className="w-4 h-4 text-slate-400" />
-                  <span>{eventType.duration} minutes</span>
-                </div>
-
-                <div className="flex items-center gap-2 text-sm text-slate-300">
-                  <Video className="w-4 h-4 text-emerald-400" />
-                  <span>InterviewHub Video Room (WebRTC + Monaco IDE)</span>
-                </div>
-
-                {eventType.description && (
-                  <p className="text-xs text-slate-400 leading-relaxed pt-2 border-t border-slate-800">
-                    {eventType.description}
-                  </p>
-                )}
-
-                {host.bio && (
-                  <div className="bg-slate-900/60 rounded-xl p-3 border border-slate-800/80 text-xs text-slate-400">
-                    <span className="text-[10px] font-semibold text-slate-300 block mb-1">About Host:</span>
-                    {host.bio}
-                  </div>
-                )}
+              <div>
+                <h3 className="font-bold text-white text-base leading-tight">{host.name}</h3>
+                <p className="text-xs text-zinc-400 mt-0.5 line-clamp-1">{host.title || 'Technical Interviewer'}</p>
               </div>
             </div>
 
-            {/* Timezone picker */}
-            <div className="mt-8 pt-6 border-t border-slate-800">
-              <label className="text-xs font-semibold text-slate-400 block mb-1.5 flex items-center gap-1.5">
-                <Globe className="w-3.5 h-3.5 text-blue-400" /> Timezone
+            <div className="space-y-4">
+              <div>
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-violet-400 bg-violet-500/10 px-2.5 py-0.5 rounded border border-violet-500/20">
+                  Technical Evaluation
+                </span>
+                <h1 className="text-2xl font-bold tracking-tight text-white mt-2 leading-snug">
+                  {eventType.title}
+                </h1>
+              </div>
+
+              <div className="flex items-center gap-2.5 text-xs text-zinc-300">
+                <Clock className="w-4 h-4 text-violet-400 shrink-0" />
+                <span>{eventType.duration} minutes</span>
+              </div>
+
+              <div className="flex items-center gap-2.5 text-xs text-zinc-300">
+                <Video className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>InterviewHub Live Workspace (WebRTC + Monaco IDE)</span>
+              </div>
+
+              {eventType.description && (
+                <p className="text-xs text-zinc-400 leading-relaxed pt-3 border-t border-zinc-800/80">
+                  {eventType.description}
+                </p>
+              )}
+
+              {host.bio && (
+                <div className="bg-zinc-950/60 rounded-xl p-3 border border-zinc-800/80 text-xs text-zinc-400">
+                  <span className="text-[10px] font-semibold text-zinc-300 block mb-1">About Host:</span>
+                  {host.bio}
+                </div>
+              )}
+            </div>
+
+            {/* Timezone Selector */}
+            <div className="pt-4 border-t border-zinc-800/80">
+              <label className="text-xs font-medium text-zinc-400 block mb-1.5 flex items-center gap-1.5">
+                <Globe className="w-3.5 h-3.5 text-violet-400" /> Timezone
               </label>
               <select
                 value={selectedTimezone}
                 onChange={(e) => setSelectedTimezone(e.target.value)}
-                className="w-full bg-[#1E293B] border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-200 focus:outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 transition-all cursor-pointer"
               >
                 {TIMEZONES.map(tz => (
                   <option key={tz} value={tz}>{tz}</option>
@@ -267,8 +276,8 @@ export default function PublicBooking() {
             </div>
           </div>
 
-          {/* Right Column: Date & Slot Picker or Booking Form */}
-          <div className="lg:col-span-8 p-8 flex flex-col justify-between">
+          {/* Right Column: Calendar & Time Slots OR Booking Questions */}
+          <div className="lg:col-span-8 bg-zinc-900/70 border border-zinc-800/80 rounded-2xl p-6 sm:p-8 shadow-sm backdrop-blur-xl">
             {step === 'select_slot' ? (
               <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
                 {/* Calendar Grid */}
@@ -280,21 +289,21 @@ export default function PublicBooking() {
                     <div className="flex items-center gap-1">
                       <button
                         onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))}
-                        className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
+                        className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors cursor-pointer"
                       >
-                        <ChevronLeft className="w-5 h-5" />
+                        <ChevronLeft className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))}
-                        className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
+                        className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors cursor-pointer"
                       >
-                        <ChevronRight className="w-5 h-5" />
+                        <ChevronRight className="w-4 h-4" />
                       </button>
                     </div>
                   </div>
 
                   {/* Day of Week Headers */}
-                  <div className="grid grid-cols-7 gap-1 text-center text-xs font-bold text-slate-500 mb-2">
+                  <div className="grid grid-cols-7 gap-1 text-center text-xs font-semibold text-zinc-500 mb-2">
                     {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
                       <span key={d} className="py-1">{d}</span>
                     ))}
@@ -317,12 +326,12 @@ export default function PublicBooking() {
                           key={day.toISOString()}
                           disabled={isPast}
                           onClick={() => setSelectedDate(day)}
-                          className={`h-10 rounded-xl text-xs font-semibold flex items-center justify-center transition-all ${
+                          className={`h-10 rounded-xl text-xs font-medium flex items-center justify-center transition-all cursor-pointer ${
                             isSelected
-                              ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30'
+                              ? 'bg-violet-600 text-white shadow-sm shadow-violet-600/30'
                               : isPast
-                              ? 'text-slate-600 cursor-not-allowed'
-                              : 'text-slate-200 hover:bg-blue-500/15 hover:text-blue-400 border border-transparent hover:border-blue-500/30'
+                              ? 'text-zinc-600 cursor-not-allowed'
+                              : 'text-zinc-200 hover:bg-violet-500/10 hover:text-violet-300 border border-transparent hover:border-violet-500/30'
                           }`}
                         >
                           {day.getDate()}
@@ -333,40 +342,45 @@ export default function PublicBooking() {
                 </div>
 
                 {/* Available Slots List */}
-                <div className="md:col-span-5 border-t md:border-t-0 md:border-l border-slate-800 pt-6 md:pt-0 md:pl-6 flex flex-col">
-                  <h4 className="font-bold text-white text-sm mb-3">
+                <div className="md:col-span-5 border-t md:border-t-0 md:border-l border-zinc-800/80 pt-6 md:pt-0 md:pl-6 flex flex-col">
+                  <h4 className="font-semibold text-white text-sm mb-3">
                     {selectedDate 
                       ? selectedDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
                       : 'Select a Date'}
                   </h4>
 
                   {!selectedDate ? (
-                    <div className="flex-1 flex flex-col items-center justify-center text-center p-6 text-slate-500">
-                      <CalendarIcon className="w-8 h-8 mb-2 opacity-40" />
+                    <div className="flex-1 flex flex-col items-center justify-center text-center p-6 text-zinc-500">
+                      <CalendarIcon className="w-8 h-8 mb-2 opacity-40 text-zinc-400" />
                       <p className="text-xs">Pick a day on the calendar to see real-time open slots.</p>
                     </div>
                   ) : loadingSlots ? (
                     <div className="flex-1 flex items-center justify-center py-10">
-                      <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                      <div className="w-5 h-5 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
                     </div>
                   ) : slots.length === 0 ? (
-                    <div className="flex-1 flex flex-col items-center justify-center text-center p-6 text-slate-500">
-                      <Clock className="w-8 h-8 mb-2 opacity-40 text-amber-500" />
-                      <p className="text-xs text-amber-400/90 font-medium">No open slots on this date.</p>
-                      <p className="text-[11px] text-slate-500 mt-1">Please select another date on the calendar.</p>
+                    <div className="flex-1 flex flex-col items-center justify-center text-center p-6 text-zinc-500">
+                      <Clock className="w-8 h-8 mb-2 opacity-40 text-amber-400" />
+                      <p className="text-xs text-amber-400 font-medium">No open slots on this date.</p>
+                      <p className="text-[11px] text-zinc-500 mt-1">Please select another date on the calendar.</p>
                     </div>
                   ) : (
-                    <div className="flex-1 overflow-y-auto max-h-72 space-y-2 pr-1">
-                      {slots.map((slot, sIdx) => {
+                    <div className="flex-1 overflow-y-auto max-h-80 space-y-2 pr-1">
+                      {slots.map((slot) => {
                         const isChosen = selectedSlot?.start === slot.start;
                         return (
-                          <div key={slot.start} className="flex gap-2">
+                          <div 
+                            key={slot.start} 
+                            className={`flex items-center gap-2 transition-all duration-300 ${
+                              isChosen ? 'scale-[1.02]' : ''
+                            }`}
+                          >
                             <button
                               onClick={() => setSelectedSlot(slot)}
-                              className={`flex-1 py-2.5 px-3 rounded-xl border text-xs font-semibold transition-all ${
+                              className={`flex-1 py-2.5 px-3 rounded-lg border text-xs font-medium transition-all cursor-pointer ${
                                 isChosen
-                                  ? 'bg-blue-600 text-white border-blue-500'
-                                  : 'bg-slate-900/80 border-slate-700/80 text-blue-400 hover:border-blue-500/50 hover:bg-slate-800'
+                                  ? 'bg-violet-600 text-white border-violet-500 shadow-sm'
+                                  : 'bg-zinc-950/80 border-zinc-800 text-zinc-300 hover:border-violet-500/60 hover:text-white'
                               }`}
                             >
                               {slot.timeLabel}
@@ -374,9 +388,10 @@ export default function PublicBooking() {
                             {isChosen && (
                               <button
                                 onClick={() => setStep('details')}
-                                className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1"
+                                className="px-3.5 py-2.5 bg-violet-600 hover:bg-violet-500 text-white rounded-lg text-xs font-medium transition-all shadow-sm flex items-center gap-1 shrink-0 animate-in fade-in slide-in-from-left-2 duration-200 cursor-pointer"
                               >
-                                Next <ArrowRight className="w-3.5 h-3.5" />
+                                <span>Confirm</span>
+                                <ArrowRight className="w-3.5 h-3.5" />
                               </button>
                             )}
                           </div>
@@ -387,24 +402,24 @@ export default function PublicBooking() {
                 </div>
               </div>
             ) : (
-              /* Step 2: Candidate Details & Questions */
-              <div>
+              /* Step 2: Smooth Slide-In Candidate Details Form */
+              <div className="animate-in fade-in slide-in-from-right-4 duration-300">
                 <button
                   onClick={() => setStep('select_slot')}
-                  className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors mb-6"
+                  className="inline-flex items-center gap-1.5 text-xs text-zinc-400 hover:text-white transition-colors mb-6 cursor-pointer"
                 >
                   <ChevronLeft className="w-4 h-4" /> Back to calendar
                 </button>
 
-                <div className="mb-6 pb-4 border-b border-slate-800">
+                <div className="mb-6 pb-4 border-b border-zinc-800/80">
                   <h3 className="text-lg font-bold text-white">Enter Your Booking Details</h3>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Slot: <strong className="text-blue-400">{new Date(selectedSlot.start).toLocaleString([], { dateStyle: 'full', timeStyle: 'short' })}</strong> ({selectedTimezone})
+                  <p className="text-xs text-zinc-400 mt-1">
+                    Slot: <strong className="text-violet-400 font-medium">{new Date(selectedSlot.start).toLocaleString([], { dateStyle: 'full', timeStyle: 'short' })}</strong> ({selectedTimezone})
                   </p>
                 </div>
 
                 {submitError && (
-                  <div className="mb-6 p-3.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-center gap-2">
+                  <div className="mb-6 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-center gap-2">
                     <AlertCircle className="w-4 h-4 shrink-0" />
                     <span>{submitError}</span>
                   </div>
@@ -413,25 +428,29 @@ export default function PublicBooking() {
                 <form onSubmit={handleBookingSubmit} className="space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <label className="text-xs font-semibold text-slate-300 block mb-1">Your Full Name *</label>
+                      <label className="text-xs font-medium text-zinc-300 block mb-1.5">
+                        Your Full Name <span className="text-violet-400">*</span>
+                      </label>
                       <input
                         type="text"
                         required
                         value={candidateName}
                         onChange={(e) => setCandidateName(e.target.value)}
                         placeholder="e.g. Alex Chen"
-                        className="w-full bg-[#1E293B] border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3.5 py-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 transition-all"
                       />
                     </div>
                     <div>
-                      <label className="text-xs font-semibold text-slate-300 block mb-1">Your Email Address *</label>
+                      <label className="text-xs font-medium text-zinc-300 block mb-1.5">
+                        Email Address <span className="text-violet-400">*</span>
+                      </label>
                       <input
                         type="email"
                         required
                         value={candidateEmail}
                         onChange={(e) => setCandidateEmail(e.target.value)}
                         placeholder="e.g. alex.chen@example.com"
-                        className="w-full bg-[#1E293B] border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3.5 py-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 transition-all"
                       />
                     </div>
                   </div>
@@ -439,8 +458,8 @@ export default function PublicBooking() {
                   {/* Dynamic Event Type Questions */}
                   {eventType.bookingQuestions?.map((q) => (
                     <div key={q.id}>
-                      <label className="text-xs font-semibold text-slate-300 block mb-1">
-                        {q.label} {q.required && '*'}
+                      <label className="text-xs font-medium text-zinc-300 block mb-1.5">
+                        {q.label} {q.required && <span className="text-violet-400">*</span>}
                       </label>
                       {q.type === 'textarea' ? (
                         <textarea
@@ -448,14 +467,14 @@ export default function PublicBooking() {
                           required={q.required}
                           value={answers[q.id] || ''}
                           onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
-                          className="w-full bg-[#1E293B] border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3.5 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 transition-all"
                         />
                       ) : q.type === 'select' && q.options?.length ? (
                         <select
                           required={q.required}
                           value={answers[q.id] || ''}
                           onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
-                          className="w-full bg-[#1E293B] border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500"
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 transition-all cursor-pointer"
                         >
                           <option value="">Select an option...</option>
                           {q.options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
@@ -466,20 +485,22 @@ export default function PublicBooking() {
                           required={q.required}
                           value={answers[q.id] || ''}
                           onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
-                          className="w-full bg-[#1E293B] border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3.5 py-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 transition-all"
                         />
                       )}
                     </div>
                   ))}
 
                   <div>
-                    <label className="text-xs font-semibold text-slate-300 block mb-1">Additional Notes / Questions (Optional)</label>
+                    <label className="text-xs font-medium text-zinc-300 block mb-1.5">
+                      Additional Notes / Background <span className="text-zinc-500 font-normal">(Optional)</span>
+                    </label>
                     <textarea
                       rows={2}
                       value={attendeeNotes}
                       onChange={(e) => setAttendeeNotes(e.target.value)}
-                      placeholder="Share anything that will help prepare for the session..."
-                      className="w-full bg-[#1E293B] border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                      placeholder="Share anything that will help prepare for the technical evaluation..."
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3.5 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 transition-all"
                     />
                   </div>
 
@@ -487,10 +508,16 @@ export default function PublicBooking() {
                     <button
                       type="submit"
                       disabled={submitting}
-                      className="px-6 py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold rounded-xl text-xs transition-all shadow-lg shadow-blue-500/25 flex items-center gap-2"
+                      className="px-6 py-2.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white font-medium rounded-lg text-xs transition-all shadow-sm hover:shadow-violet-600/25 flex items-center gap-2 cursor-pointer focus-visible:ring-2 focus-visible:ring-violet-500/50 outline-none"
                     >
-                      {submitting ? 'Confirming Reservation...' : 'Confirm & Schedule Interview'}
-                      <CheckCircle2 className="w-4 h-4" />
+                      {submitting ? (
+                        <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                      ) : (
+                        <>
+                          <span>Confirm & Schedule Interview</span>
+                          <CheckCircle2 className="w-4 h-4" />
+                        </>
+                      )}
                     </button>
                   </div>
                 </form>
