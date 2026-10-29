@@ -15,6 +15,8 @@ import {
 } from 'lucide-react';
 import api from '../services/api';
 
+import { FALLBACK_CHALLENGES } from '../data/fallbackData';
+
 export default function Challenges() {
   const [challenges, setChallenges] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -31,9 +33,14 @@ export default function Challenges() {
     try {
       const res = await api.get('/challenges');
       const list = res.data.data?.challenges || (Array.isArray(res.data.data) ? res.data.data : []);
-      setChallenges(list);
+      if (list && list.length > 0) {
+        setChallenges(list);
+      } else {
+        setChallenges(FALLBACK_CHALLENGES);
+      }
     } catch (err) {
-      console.error('Error fetching challenges:', err);
+      console.warn('Backend /challenges unreachable on Vercel, loading curated challenge bank:', err.message);
+      setChallenges(FALLBACK_CHALLENGES);
     } finally {
       setIsLoading(false);
     }

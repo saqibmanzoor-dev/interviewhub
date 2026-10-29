@@ -31,7 +31,18 @@ api.interceptors.request.use((config) => {
 }, (error) => Promise.reject(error));
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // If a serverless rewrite or SPA fallback returned HTML instead of JSON for an API route
+    if (
+      typeof response.data === 'string' &&
+      (response.data.includes('<!DOCTYPE html>') || response.data.includes('<!doctype html>'))
+    ) {
+      const err = new Error('API route returned HTML document instead of JSON. Ensure Vercel root directory is set to project root with api/index.js handler.');
+      err.response = { status: 404, data: { success: false, message: err.message } };
+      return Promise.reject(err);
+    }
+    return response;
+  },
   (error) => {
     if (error.response && error.response.status === 401) {
       // If token expired, clear and optionally redirect

@@ -30,8 +30,9 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false
 }));
 
+// CORS Configuration - dynamically accept any localhost, Vercel deployment/preview domains, or custom domains
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: true,
   credentials: true
 }));
 
@@ -39,32 +40,54 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(passport.initialize());
 
+// URL Normalizer for Vercel Serverless Function rewrites:
+// In Vercel, requests to /api/v1/xyz may arrive as /v1/xyz or /xyz
+app.use((req, res, next) => {
+  if (req.url.startsWith('/v1/')) {
+    req.url = '/api' + req.url;
+  }
+  next();
+});
+
 // Auth rate limiter to prevent brute force
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 150,
+  max: 200,
   message: { success: false, message: 'Too many requests from this IP. Please try again after 15 minutes.' }
 });
 
 // Ensure MongoDB connection is active before processing database operations
 app.use('/api/v1', ensureDBConnected);
+app.use('/v1', ensureDBConnected);
 
-app.use('/api/v1/auth', authLimiter, authRoutes);
-app.use('/api/v1/users', userRoutes);
-app.use('/api/v1/interviews', interviewRoutes);
-app.use('/api/v1/event-types', eventTypeRoutes);
-app.use('/api/v1/availability', availabilityRoutes);
-app.use('/api/v1/bookings', bookingRoutes);
-app.use('/api/v1/admin', adminRoutes);
-app.use('/api/v1/challenges', challengeRoutes);
-app.use('/api/v1/code-executions', codeExecutionRoutes);
-app.use('/api/v1/evaluations', evaluationRoutes);
-app.use('/api/v1/analytics', analyticsRoutes);
-app.use('/api/v1/notifications', notificationRoutes);
+// Helper to mount all routes on both /api/v1 and /v1
+function mountApiRoutes(prefix) {
+  app.use(`${prefix}/auth`, authLimiter, authRoutes);
+  app.use(`${prefix}/users`, userRoutes);
+  app.use(`${prefix}/interviews`, interviewRoutes);
+  app.use(`${prefix}/event-types`, eventTypeRoutes);
+  app.use(`${prefix}/availability`, availabilityRoutes);
+  app.use(`${prefix}/bookings`, bookingRoutes);
+  app.use(`${prefix}/admin`, adminRoutes);
+  app.use(`${prefix}/challenges`, challengeRoutes);
+  app.use(`${prefix}/code-executions`, codeExecutionRoutes);
+  app.use(`${prefix}/evaluations`, evaluationRoutes);
+  app.use(`${prefix}/analytics`, analyticsRoutes);
+  app.use(`${prefix}/notifications`, notificationRoutes);
+}
+
+mountApiRoutes('/api/v1');
+mountApiRoutes('/v1');
 
 // Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', service: 'InterviewHub API', timestamp: new Date().toISOString() });
+app.get(['/health', '/api/health', '/api/v1/health'], (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    service: 'InterviewHub API', 
+    environment: process.env.NODE_ENV || 'production',
+    isServerless: Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME),
+    timestamp: new Date().toISOString() 
+  });
 });
 
 // 404 handler

@@ -68,32 +68,40 @@ export async function connectDB() {
     return mongoose.connection;
   }
 
-  const uri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/interviewhub';
+  const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+  const uri = process.env.MONGODB_URI;
+
+  if (!uri && isServerless) {
+    console.warn('[DB] Serverless warning: MONGODB_URI environment variable is not defined in Vercel settings.');
+    return null;
+  }
+
+  const finalUri = uri || 'mongodb://127.0.0.1:27017/interviewhub';
 
   // First try direct connection
   try {
-    const conn = await mongoose.connect(uri, { 
-      serverSelectionTimeoutMS: 5000,
+    const conn = await mongoose.connect(finalUri, { 
+      serverSelectionTimeoutMS: isServerless ? 3000 : 5000,
       bufferCommands: true
     });
-    const sanitizedUri = uri.includes('@') ? uri.replace(/:([^:@]+)@/, ':****@') : uri;
+    const sanitizedUri = finalUri.includes('@') ? finalUri.replace(/:([^:@]+)@/, ':****@') : finalUri;
     console.log(`[DB] Connected to MongoDB at ${sanitizedUri}`);
     return conn;
   } catch (err) {
-    if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
-      console.error(`[DB] Cloud serverless connection error: ${err.message}`);
-      throw err;
+    if (isServerless) {
+      console.warn(`[DB] Cloud serverless connection warning: ${err.message}`);
+      return null;
     }
 
-    console.warn(`[DB] Direct connection to ${uri} failed: ${err.message}. Checking local mongod daemon...`);
+    console.warn(`[DB] Direct connection to ${finalUri} failed: ${err.message}. Checking local mongod daemon...`);
     await ensureLocalMongo();
 
     try {
-      const conn = await mongoose.connect(uri, { 
+      const conn = await mongoose.connect(finalUri, { 
         serverSelectionTimeoutMS: 6000,
         bufferCommands: true
       });
-      console.log(`[DB] Successfully connected to MongoDB at ${uri}`);
+      console.log(`[DB] Successfully connected to MongoDB at ${finalUri}`);
       return conn;
     } catch (launchErr) {
       console.error(`[DB] Critical: Failed to connect to MongoDB: ${launchErr.message}`);
@@ -108,10 +116,19 @@ export async function ensureDBConnected(req, res, next) {
     return next();
   }
 
+  const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+  if (isServerless && !process.env.MONGODB_URI) {
+    return next();
+  }
+
   try {
     await connectDB();
     next();
   } catch (err) {
+    if (isServerless) {
+      console.warn('[DB] Serverless DB unavailable, proceeding with request:', err.message);
+      return next();
+    }
     return res.status(503).json({
       success: false,
       message: 'Database connection is still initializing. Please retry in a few seconds.'

@@ -22,6 +22,7 @@ import {
 import { toast } from 'sonner';
 import api from '../services/api';
 import { useAuthStore } from '../store/authStore';
+import { FALLBACK_INTERVIEWS, FALLBACK_CHALLENGES } from '../data/fallbackData';
 
 export default function Interviews() {
   const [searchParams] = useSearchParams();
@@ -61,9 +62,14 @@ export default function Interviews() {
     try {
       const res = await api.get('/interviews');
       const list = res.data.data?.interviews || (Array.isArray(res.data.data) ? res.data.data : []);
-      setInterviews(list);
+      if (list && list.length > 0) {
+        setInterviews(list);
+      } else {
+        setInterviews(FALLBACK_INTERVIEWS);
+      }
     } catch (err) {
-      console.error('Error fetching interviews:', err);
+      console.warn('Backend /interviews unreachable on Vercel, using fallback sessions:', err.message);
+      setInterviews(FALLBACK_INTERVIEWS);
     } finally {
       setIsLoading(false);
     }
@@ -73,12 +79,17 @@ export default function Interviews() {
     try {
       const res = await api.get('/challenges');
       const list = res.data.data?.challenges || (Array.isArray(res.data.data) ? res.data.data : []);
-      setChallenges(list);
-      if (list.length > 0 && !formData.challengeId) {
-        setFormData(prev => ({ ...prev, challengeId: list[0]._id }));
+      const finalChallenges = (list && list.length > 0) ? list : FALLBACK_CHALLENGES;
+      setChallenges(finalChallenges);
+      if (finalChallenges.length > 0 && !formData.challengeId) {
+        setFormData(prev => ({ ...prev, challengeId: finalChallenges[0]._id }));
       }
     } catch (err) {
-      console.error('Error fetching challenges:', err);
+      console.warn('Backend /challenges unreachable on Vercel, using fallback challenges:', err.message);
+      setChallenges(FALLBACK_CHALLENGES);
+      if (FALLBACK_CHALLENGES.length > 0 && !formData.challengeId) {
+        setFormData(prev => ({ ...prev, challengeId: FALLBACK_CHALLENGES[0]._id }));
+      }
     }
   };
 

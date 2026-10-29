@@ -301,7 +301,6 @@ export default function InterviewRoom() {
 
     s.on('disconnect', () => {
       setIsConnected(false);
-      toast.error('Socket disconnected. Reconnecting...');
     });
 
     // Join Canonical Room using meetingCode
