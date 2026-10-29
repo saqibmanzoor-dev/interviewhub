@@ -12,18 +12,21 @@ export function setupInterviewSockets(io) {
 
     socket.on('room:join', async ({ interviewId, user }) => {
       try {
-        // Fetch interview details to resolve canonical room ID (meetingCode)
-        const isObjectId = typeof interviewId === 'string' && interviewId.match(/^[0-9a-fA-F]{24}$/);
-        const query = isObjectId ? { _id: interviewId } : { meetingCode: interviewId };
+        const canonicalRoomId = (interviewId || '').trim().toLowerCase();
+        if (!canonicalRoomId) return;
 
-        const interview = await Interview.findOne(query)
-          .populate('challengeId')
-          .lean();
-
-        // Always use canonical meetingCode as room ID so host and candidate share the exact same room
-        const canonicalRoomId = interview?.meetingCode || interviewId;
         currentInterviewId = canonicalRoomId;
-        currentUser = user;
+        const safeUser = user || {};
+        const safeUserId = safeUser.id || safeUser._id || ('guest_' + socket.id);
+        const safeName = safeUser.name || 'Participant';
+        const safeRole = safeUser.role || 'candidate';
+
+        currentUser = {
+          id: safeUserId,
+          name: safeName,
+          role: safeRole,
+          avatar: safeUser.avatar || ''
+        };
 
         socket.join(canonicalRoomId);
 
@@ -34,11 +37,11 @@ export function setupInterviewSockets(io) {
         const roomMap = interviewRooms.get(canonicalRoomId);
         const participantInfo = {
           socketId: socket.id,
-          userId: user.id || user._id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          avatar: user.avatar,
+          userId: safeUserId,
+          name: safeName,
+          email: safeUser.email || '',
+          role: safeRole,
+          avatar: safeUser.avatar || '',
           mediaState: {
             audioMuted: false,
             videoOff: false,
@@ -48,28 +51,46 @@ export function setupInterviewSockets(io) {
 
         roomMap.set(socket.id, participantInfo);
 
-        // Fetch recent chat history
-        const chatQuery = interview ? { interviewId: interview._id } : (isObjectId ? { interviewId } : null);
-        const recentChats = chatQuery 
-          ? await ChatMessage.find(chatQuery).sort({ createdAt: -1 }).limit(50).lean()
-          : [];
-
-        // Emit current room state to joining participant
+        // Emit current room state to joining participant immediately
         const participants = Array.from(roomMap.values());
         socket.emit('room:state', {
           participants,
-          activeCode: interview?.activeCode || '',
-          activeLanguage: interview?.activeLanguage || 'javascript',
-          challenge: interview?.challengeId || null,
-          chats: recentChats.reverse()
+          activeCode: '',
+          activeLanguage: 'javascript',
+          challenge: null,
+          chats: []
         });
 
-        // Notify other participants in the room
+        // Notify other participants in the room immediately
         socket.to(canonicalRoomId).emit('room:participant-joined', participantInfo);
-        console.log(`[Socket] User ${user.name} joined interview room ${canonicalRoomId} (${participants.length} in room)`);
+        console.log(`[Socket] User ${safeName} joined room ${canonicalRoomId} (${participants.length} in room)`);
+
+        // Asynchronously populate challenge & chats if interview exists in DB
+        try {
+          const isObjectId = typeof interviewId === 'string' && interviewId.match(/^[0-9a-fA-F]{24}$/);
+          const query = isObjectId ? { _id: interviewId } : { meetingCode: canonicalRoomId };
+          const interview = await Interview.findOne(query).populate('challengeId').lean();
+
+          if (interview) {
+            const recentChats = await ChatMessage.find({ interviewId: interview._id })
+              .sort({ createdAt: -1 })
+              .limit(50)
+              .lean();
+
+            socket.emit('room:state', {
+              participants: Array.from(roomMap.values()),
+              activeCode: interview.activeCode || '',
+              activeLanguage: interview.activeLanguage || 'javascript',
+              challenge: interview.challengeId || null,
+              chats: (recentChats || []).reverse()
+            });
+          }
+        } catch (dbErr) {
+          // DB fetch error is non-fatal; participants remain connected
+          console.warn('[Socket DB Notice]', dbErr.message);
+        }
       } catch (err) {
         console.error('[Socket Join Error]', err);
-        socket.emit('error', { message: 'Failed to join interview room.' });
       }
     });
 

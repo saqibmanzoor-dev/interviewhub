@@ -36,6 +36,7 @@ import {
 import { toast } from 'sonner';
 import api from '../services/api';
 import { getSocket, connectSocket } from '../services/socket';
+import { PeerRoomService } from '../services/peerService';
 import { useAuthStore } from '../store/authStore';
 
 export default function InterviewRoom() {
@@ -156,6 +157,7 @@ export default function InterviewRoom() {
   const broadcastRef = useRef(null);
   const localPeerIdRef = useRef('peer_' + Math.random().toString(36).slice(2, 9));
   const iceCandidateQueueRef = useRef([]);
+  const peerRoomRef = useRef(null);
 
   const currentUserName = user?.name || guestName || (isHost ? 'Lead Interviewer' : 'Second Candidate');
   const currentUserRoleLabel = isHost ? (user?.role === 'admin' ? 'Admin' : 'Interviewer') : 'Candidate';
@@ -295,23 +297,29 @@ export default function InterviewRoom() {
     socketRef.current = s;
     const roomId = meetingCode;
 
+    const sendJoin = () => {
+      s.emit('room:join', {
+        interviewId: (meetingCode || '').trim().toLowerCase(),
+        user: {
+          id: user?._id || localPeerIdRef.current,
+          name: currentUserName,
+          role: isHost ? 'interviewer' : 'candidate',
+          avatar: user?.avatar || ''
+        }
+      });
+    };
+
+    if (s.connected) {
+      sendJoin();
+    }
+
     s.on('connect', () => {
       setIsConnected(true);
+      sendJoin();
     });
 
     s.on('disconnect', () => {
       setIsConnected(false);
-    });
-
-    // Join Canonical Room using meetingCode
-    s.emit('room:join', {
-      interviewId: meetingCode,
-      user: {
-        id: user?._id || localPeerIdRef.current,
-        name: user?.name || (isHost ? 'Lead Interviewer' : 'Candidate'),
-        role: user?.role || (isHost ? 'interviewer' : 'candidate'),
-        avatar: user?.avatar || ''
-      }
     });
 
     // Initialize local cross-tab BroadcastChannel for bulletproof zero-latency signaling
@@ -470,6 +478,7 @@ export default function InterviewRoom() {
       try {
         const pc = createPeerConnection(senderSocketId);
         await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+        await flushIceCandidates(pc);
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         s.emit('webrtc:answer', {
@@ -486,6 +495,7 @@ export default function InterviewRoom() {
       try {
         if (peerConnectionRef.current) {
           await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
+          await flushIceCandidates(peerConnectionRef.current);
         }
       } catch (err) {
         console.error('[WebRTC] Error handling answer:', err);
@@ -493,9 +503,13 @@ export default function InterviewRoom() {
     });
 
     s.on('webrtc:ice-candidate', async ({ senderSocketId, candidate }) => {
+      if (!candidate) return;
       try {
-        if (peerConnectionRef.current && candidate) {
-          await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+        const pc = peerConnectionRef.current;
+        if (pc && pc.remoteDescription && pc.remoteDescription.type) {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        } else {
+          iceCandidateQueueRef.current.push(candidate);
         }
       } catch (err) {
         console.error('[WebRTC] Error adding ICE candidate:', err);
@@ -575,6 +589,84 @@ export default function InterviewRoom() {
       s.off('webrtc:ice-candidate');
     };
   }, [meetingCode, user]);
+
+  // 5. PeerJS Cloud WebRTC Signaling Fallback (for Vercel & cross-computer rooms)
+  useEffect(() => {
+    if (!meetingCode) return;
+
+    const timer = setTimeout(() => {
+      if (peerRoomRef.current) return;
+
+      const pService = new PeerRoomService({
+        meetingCode,
+        user: {
+          name: currentUserName,
+          role: isHost ? 'interviewer' : 'candidate',
+          avatar: user?.avatar || ''
+        },
+        isHost,
+        localStream: screenStreamRef.current || localStreamRef.current,
+        onRemoteStream: (stream) => {
+          if (remoteVideoRef.current) {
+            remoteVideoRef.current.srcObject = stream;
+            remoteVideoRef.current.play().catch(() => {});
+          }
+          setHasRemoteStream(true);
+          toast.success('Remote participant video connected');
+        },
+        onRemotePeer: (remoteUser) => {
+          setRemotePeerInfo(remoteUser);
+          setParticipants(prev => {
+            const hasSelf = prev.some(p => p.id === 'self' || p.name === currentUserName);
+            const hasRemote = prev.some(p => p.name === remoteUser.name);
+            const list = hasSelf ? [...prev] : [
+              { id: 'self', name: currentUserName, role: currentUserRoleLabel.toLowerCase(), video: isCameraOn, mic: isMicOn }
+            ];
+            if (!hasRemote) {
+              list.push({
+                id: 'remote',
+                name: remoteUser.name || 'Participant',
+                role: remoteUser.role || 'candidate',
+                video: true,
+                mic: true
+              });
+            }
+            return list;
+          });
+          toast.success(`${remoteUser.name} joined the room`);
+        },
+        onCodeChange: (newCode) => {
+          if (newCode !== undefined) {
+            setCode(newCode);
+          }
+        },
+        onChatMessage: (msg) => {
+          setMessages(prev => {
+            if (prev.some(m => m.id === msg.id)) return prev;
+            return [...prev, msg];
+          });
+        },
+        onPeerLeft: () => {
+          setHasRemoteStream(false);
+          setRemotePeerInfo(null);
+          if (remoteVideoRef.current) {
+            remoteVideoRef.current.srcObject = null;
+          }
+          toast.info('Remote participant left');
+        }
+      });
+
+      peerRoomRef.current = pService;
+    }, 1000);
+
+    return () => {
+      clearTimeout(timer);
+      if (peerRoomRef.current) {
+        peerRoomRef.current.destroy();
+        peerRoomRef.current = null;
+      }
+    };
+  }, [meetingCode, isHost, currentUserName]);
 
   const fetchInterviewDetails = async () => {
     setIsLoading(true);
@@ -679,6 +771,7 @@ export default function InterviewRoom() {
               } catch (e) {}
             }
           });
+          peerRoomRef.current?.updateLocalStream(stream);
         }
         return;
       }
@@ -694,6 +787,7 @@ export default function InterviewRoom() {
       localVideoRef.current.srcObject = fallbackStream;
       localVideoRef.current.play().catch(() => {});
     }
+    peerRoomRef.current?.updateLocalStream(fallbackStream);
     if (peerConnectionRef.current) {
       const currentSenders = peerConnectionRef.current.getSenders();
       fallbackStream.getTracks().forEach(track => {
@@ -828,6 +922,7 @@ export default function InterviewRoom() {
         senderId: localPeerIdRef.current
       });
     }
+    peerRoomRef.current?.sendCode(newVal || '');
   };
 
   const handleRunCode = async () => {
@@ -882,8 +977,9 @@ export default function InterviewRoom() {
         message: newMsg,
         senderId: localPeerIdRef.current
       });
-      setMessages(prev => [...prev, newMsg]);
     }
+    peerRoomRef.current?.sendChatMessage(newMsg);
+    setMessages(prev => [...prev, newMsg]);
     setChatInput('');
     setTimeout(() => {
       chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -1645,10 +1741,24 @@ export default function InterviewRoom() {
                 autoFocus
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
-                    const finalName = guestInputName.trim() || 'Second Candidate';
+                    const finalName = guestInputName.trim() || 'Candidate';
                     setGuestName(finalName);
                     localStorage.setItem('interview_guest_name', finalName);
                     setShowGuestModal(false);
+                    if (socketRef.current) {
+                      socketRef.current.emit('room:join', {
+                        interviewId: (meetingCode || '').trim().toLowerCase(),
+                        user: { id: localPeerIdRef.current, name: finalName, role: 'candidate', avatar: '' }
+                      });
+                    }
+                    if (broadcastRef.current) {
+                      broadcastRef.current.postMessage({
+                        type: 'peer:announce',
+                        senderId: localPeerIdRef.current,
+                        name: finalName,
+                        role: 'candidate'
+                      });
+                    }
                   }
                 }}
               />
@@ -1656,10 +1766,24 @@ export default function InterviewRoom() {
 
             <button
               onClick={() => {
-                const finalName = guestInputName.trim() || 'Second Candidate';
+                const finalName = guestInputName.trim() || 'Candidate';
                 setGuestName(finalName);
                 localStorage.setItem('interview_guest_name', finalName);
                 setShowGuestModal(false);
+                if (socketRef.current) {
+                  socketRef.current.emit('room:join', {
+                    interviewId: (meetingCode || '').trim().toLowerCase(),
+                    user: { id: localPeerIdRef.current, name: finalName, role: 'candidate', avatar: '' }
+                  });
+                }
+                if (broadcastRef.current) {
+                  broadcastRef.current.postMessage({
+                    type: 'peer:announce',
+                    senderId: localPeerIdRef.current,
+                    name: finalName,
+                    role: 'candidate'
+                  });
+                }
               }}
               className="w-full py-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-xs font-semibold transition-all shadow-md shadow-violet-600/30 cursor-pointer"
             >
