@@ -5,6 +5,7 @@ import InterviewSession from '../models/InterviewSession.js';
 import CodingChallenge from '../models/CodingChallenge.js';
 import Notification from '../models/Notification.js';
 import AnalyticsEvent from '../models/AnalyticsEvent.js';
+import RoomState from '../models/RoomState.js';
 import { sendInterviewInvitationEmail } from '../services/emailService.js';
 import crypto from 'crypto';
 
@@ -411,3 +412,150 @@ export async function endInterview(req, res, next) {
     next(err);
   }
 }
+
+// In-memory cache for ultra-low latency & resilient fallback across invocations
+const memRoomCache = new Map();
+
+export async function syncRoomState(req, res, next) {
+  try {
+    const rawCode = (req.params.id || '').trim().toLowerCase();
+    const cleanCode = rawCode.replace(/[^a-z0-9-]/g, '');
+    const {
+      sessionId,
+      peerId,
+      user: userData = {},
+      media = {},
+      newChat,
+      codeUpdate,
+      languageUpdate,
+      signal
+    } = req.body;
+
+    if (!cleanCode || !sessionId) {
+      return res.status(400).json({ success: false, message: 'meetingCode and sessionId are required' });
+    }
+
+    const now = new Date();
+    const activeCutoff = new Date(Date.now() - 30 * 1000); // 30s active window
+
+    let room = null;
+    try {
+      room = await RoomState.findOne({ meetingCode: cleanCode });
+      if (!room) {
+        room = new RoomState({
+          meetingCode: cleanCode,
+          activeCode: codeUpdate || '',
+          activeLanguage: languageUpdate || 'javascript',
+          participants: [],
+          messages: [],
+          signals: []
+        });
+      }
+    } catch (dbErr) {
+      console.warn('[SyncRoom] DB fetch warning, falling back to memory:', dbErr.message);
+    }
+
+    // Fallback to in-memory if DB call errored
+    if (!room) {
+      if (!memRoomCache.has(cleanCode)) {
+        memRoomCache.set(cleanCode, {
+          meetingCode: cleanCode,
+          activeCode: codeUpdate || '',
+          activeLanguage: languageUpdate || 'javascript',
+          participants: [],
+          messages: [],
+          signals: []
+        });
+      }
+      room = memRoomCache.get(cleanCode);
+    }
+
+    // 1. Filter out stale participants (> 30s) and exclude self
+    room.participants = (room.participants || []).filter(p => {
+      const last = new Date(p.lastSeen);
+      return last > activeCutoff && p.sessionId !== sessionId;
+    });
+
+    // 2. Add or update current participant
+    room.participants.push({
+      sessionId,
+      peerId: peerId || '',
+      name: userData.name || 'Participant',
+      role: userData.role || 'candidate',
+      avatar: userData.avatar || '',
+      mic: media.mic !== false,
+      video: media.video !== false,
+      lastSeen: now
+    });
+
+    // 3. Append new chat message if present
+    if (newChat && newChat.text && newChat.id) {
+      const alreadyHas = (room.messages || []).some(m => String(m.id) === String(newChat.id));
+      if (!alreadyHas) {
+        room.messages.push({
+          id: String(newChat.id),
+          sender: newChat.sender || userData.name || 'Participant',
+          role: newChat.role || userData.role || 'candidate',
+          text: newChat.text,
+          timestamp: newChat.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          createdAt: now
+        });
+        if (room.messages.length > 100) {
+          room.messages = room.messages.slice(-100);
+        }
+      }
+    }
+
+    // 4. Update code if provided
+    if (typeof codeUpdate === 'string' && codeUpdate.trim().length > 0) {
+      room.activeCode = codeUpdate;
+    }
+    if (languageUpdate) {
+      room.activeLanguage = languageUpdate;
+    }
+
+    // 5. Handle signaling messages (WebRTC fallback)
+    let incomingSignals = [];
+    if (room.signals && room.signals.length) {
+      incomingSignals = room.signals.filter(s => s.toSessionId === sessionId);
+      const signalCutoff = new Date(Date.now() - 45 * 1000);
+      room.signals = room.signals.filter(s => s.toSessionId !== sessionId && new Date(s.createdAt) > signalCutoff);
+    }
+
+    if (signal && signal.targetSessionId && signal.data) {
+      if (!room.signals) room.signals = [];
+      room.signals.push({
+        fromSessionId: sessionId,
+        toSessionId: signal.targetSessionId,
+        data: signal.data,
+        createdAt: now
+      });
+    }
+
+    // Persist to DB asynchronously/safely
+    if (typeof room.save === 'function') {
+      try {
+        await room.save();
+      } catch (saveErr) {
+        console.warn('[SyncRoom] DB save warning:', saveErr.message);
+      }
+    }
+    memRoomCache.set(cleanCode, room);
+
+    return res.json({
+      success: true,
+      data: {
+        meetingCode: cleanCode,
+        participants: room.participants,
+        messages: room.messages || [],
+        activeCode: room.activeCode || '',
+        activeLanguage: room.activeLanguage || 'javascript',
+        signals: incomingSignals.map(s => ({ from: s.fromSessionId, data: s.data }))
+      }
+    });
+  } catch (err) {
+    console.error('[SyncRoom] Error in syncRoomState:', err);
+    return res.status(500).json({ success: false, message: 'Internal error syncing room state' });
+  }
+}
+

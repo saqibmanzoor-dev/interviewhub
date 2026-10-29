@@ -5,6 +5,7 @@ import {
   getInterviewById,
   updateInterview,
   joinInterview,
+  syncRoomState,
   endInterview
 } from '../controllers/interviewController.js';
 import { protect, protectOptional, authorizeRoles } from '../middleware/authMiddleware.js';
@@ -16,6 +17,7 @@ router.get('/', protect, getInterviews);
 router.get('/:id', protectOptional, getInterviewById);
 router.patch('/:id', protect, updateInterview);
 router.post('/:id/join', protectOptional, joinInterview);
+router.post('/:id/sync', protectOptional, syncRoomState);
 router.post('/:id/end', protect, endInterview);
 
 export default router;

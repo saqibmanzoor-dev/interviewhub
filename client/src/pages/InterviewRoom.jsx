@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import Editor from '@monaco-editor/react';
 import { 
@@ -178,6 +178,7 @@ export default function InterviewRoom() {
   const localStreamRef = useRef(null);
   const screenStreamRef = useRef(null);
   const fallbackStreamRef = useRef(null);
+  const remoteStreamRef = useRef(null);
   const chatBottomRef = useRef(null);
   const socketRef = useRef(null);
   const peerConnectionRef = useRef(null);
@@ -185,6 +186,11 @@ export default function InterviewRoom() {
   const localPeerIdRef = useRef('peer_' + Math.random().toString(36).slice(2, 9));
   const iceCandidateQueueRef = useRef([]);
   const peerRoomRef = useRef(null);
+  const lastCodeEditTimeRef = useRef(0);
+  const codeSyncTimerRef = useRef(null);
+
+  const sessionIdRef = useRef('cs_' + Math.random().toString(36).slice(2, 9) + Date.now().toString(36));
+  const myPeerIdRef = useRef('ihub-' + cleanCode.replace(/[^a-z0-9]/g, '') + '-' + Math.random().toString(36).slice(2, 8));
 
   const currentUserName = user?.name || guestName || (isHost ? 'Lead Interviewer' : 'Second Candidate');
   const currentUserRoleLabel = isHost ? (user?.role === 'admin' ? 'Admin' : 'Interviewer') : 'Candidate';
@@ -624,23 +630,135 @@ export default function InterviewRoom() {
     };
   }, [meetingCode, user]);
 
-  // 5. PeerJS Cloud WebRTC Signaling Fallback (for Vercel & cross-computer rooms)
+  // Persistent video element binding (prevents black screen on mobile tab switch/render)
+  useEffect(() => {
+    if (localVideoRef.current && localStreamRef.current) {
+      if (localVideoRef.current.srcObject !== localStreamRef.current) {
+        localVideoRef.current.srcObject = localStreamRef.current;
+      }
+      localVideoRef.current.play().catch(() => {});
+    }
+  }, [isCameraOn, mobileTab]);
+
+  useEffect(() => {
+    if (remoteVideoRef.current && remoteStreamRef.current) {
+      if (remoteVideoRef.current.srcObject !== remoteStreamRef.current) {
+        remoteVideoRef.current.srcObject = remoteStreamRef.current;
+      }
+      remoteVideoRef.current.play().catch(() => {});
+    }
+  }, [hasRemoteStream, mobileTab]);
+
+  // Fast Room State Sync engine (MongoDB backed, 100% reliable on Vercel Serverless)
+  const triggerRoomSync = useCallback(async (overrides = {}) => {
+    if (!meetingCode) return;
+    try {
+      const payload = {
+        sessionId: sessionIdRef.current,
+        peerId: myPeerIdRef.current,
+        user: {
+          name: currentUserName,
+          role: currentUserRoleLabel.toLowerCase(),
+          avatar: user?.avatar || ''
+        },
+        media: {
+          mic: isMicOn,
+          video: isCameraOn
+        },
+        ...overrides
+      };
+
+      const res = await api.post(`/interviews/${cleanCode}/sync`, payload);
+      const data = res.data?.data;
+      if (!data) return;
+
+      // 1. Sync participants
+      if (Array.isArray(data.participants)) {
+        const others = data.participants.filter(p => p.sessionId !== sessionIdRef.current);
+        const mySelf = {
+          id: 'self',
+          name: currentUserName,
+          role: currentUserRoleLabel.toLowerCase(),
+          video: isCameraOn,
+          mic: isMicOn
+        };
+
+        const mappedOthers = others.map(p => ({
+          id: p.sessionId,
+          peerId: p.peerId,
+          name: p.name,
+          role: p.role,
+          video: p.video,
+          mic: p.mic
+        }));
+
+        setParticipants([mySelf, ...mappedOthers]);
+
+        if (others.length > 0) {
+          const firstOther = others[0];
+          setRemotePeerInfo(firstOther);
+
+          // Connect to peer if valid peerId and not yet connected
+          if (firstOther.peerId && peerRoomRef.current) {
+            peerRoomRef.current.connectToPeer(firstOther.peerId);
+          }
+        }
+      }
+
+      // 2. Sync chat messages
+      if (Array.isArray(data.messages) && data.messages.length > 0) {
+        setMessages(prev => {
+          const existingIds = new Set(prev.map(m => String(m.id)));
+          const newOnes = data.messages.filter(m => !existingIds.has(String(m.id)));
+          if (newOnes.length === 0) return prev;
+          return [...prev, ...newOnes];
+        });
+      }
+
+      // 3. Sync code (if partner edited and local user hasn't edited in > 2.5s)
+      if (typeof data.activeCode === 'string' && data.activeCode.length > 0) {
+        const timeSinceLocalEdit = Date.now() - lastCodeEditTimeRef.current;
+        if (timeSinceLocalEdit > 2500) {
+          setCode(prev => {
+            if (prev !== data.activeCode) return data.activeCode;
+            return prev;
+          });
+        }
+      }
+
+      if (data.activeLanguage) {
+        setSelectedLanguage(data.activeLanguage);
+      }
+    } catch (err) {
+      console.warn('[RoomSync] Notice:', err.message);
+    }
+  }, [cleanCode, meetingCode, currentUserName, currentUserRoleLabel, isMicOn, isCameraOn, user?.avatar]);
+
+  // Periodic heartbeat & room state sync (runs every 1800ms)
+  useEffect(() => {
+    if (!meetingCode) return;
+    triggerRoomSync();
+    const interval = setInterval(() => {
+      triggerRoomSync();
+    }, 1800);
+    return () => clearInterval(interval);
+  }, [triggerRoomSync, meetingCode]);
+
+  // PeerJS Cloud WebRTC Signaling (Unique Collision-Free Peer IDs + TURN Relay)
   useEffect(() => {
     if (!meetingCode) return;
 
-    const timer = setTimeout(() => {
-      if (peerRoomRef.current) return;
-
+    if (!peerRoomRef.current) {
       const pService = new PeerRoomService({
-        meetingCode,
+        myPeerId: myPeerIdRef.current,
         user: {
           name: currentUserName,
-          role: isHost ? 'interviewer' : 'candidate',
+          role: currentUserRoleLabel.toLowerCase(),
           avatar: user?.avatar || ''
         },
-        isHost,
         localStream: screenStreamRef.current || localStreamRef.current,
         onRemoteStream: (stream) => {
+          remoteStreamRef.current = stream;
           if (remoteVideoRef.current) {
             remoteVideoRef.current.srcObject = stream;
             const p = remoteVideoRef.current.play();
@@ -656,39 +774,24 @@ export default function InterviewRoom() {
         },
         onRemotePeer: (remoteUser) => {
           setRemotePeerInfo(remoteUser);
-          setParticipants(prev => {
-            const hasSelf = prev.some(p => p.id === 'self' || p.name === currentUserName);
-            const hasRemote = prev.some(p => p.name === remoteUser.name);
-            const list = hasSelf ? [...prev] : [
-              { id: 'self', name: currentUserName, role: currentUserRoleLabel.toLowerCase(), video: isCameraOn, mic: isMicOn }
-            ];
-            if (!hasRemote) {
-              list.push({
-                id: 'remote',
-                name: remoteUser.name || 'Participant',
-                role: remoteUser.role || 'candidate',
-                video: true,
-                mic: true
-              });
-            }
-            return list;
-          });
           toast.success(`${remoteUser.name} joined the room`);
         },
         onCodeChange: (newCode) => {
           if (newCode !== undefined) {
+            lastCodeEditTimeRef.current = Date.now();
             setCode(newCode);
           }
         },
         onChatMessage: (msg) => {
           setMessages(prev => {
-            if (prev.some(m => m.id === msg.id)) return prev;
+            if (prev.some(m => String(m.id) === String(msg.id))) return prev;
             return [...prev, msg];
           });
         },
         onPeerLeft: () => {
           setHasRemoteStream(false);
           setRemotePeerInfo(null);
+          remoteStreamRef.current = null;
           if (remoteVideoRef.current) {
             remoteVideoRef.current.srcObject = null;
           }
@@ -697,16 +800,15 @@ export default function InterviewRoom() {
       });
 
       peerRoomRef.current = pService;
-    }, 1000);
+    }
 
     return () => {
-      clearTimeout(timer);
       if (peerRoomRef.current) {
         peerRoomRef.current.destroy();
         peerRoomRef.current = null;
       }
     };
-  }, [meetingCode, isHost, currentUserName]);
+  }, [meetingCode]);
 
   const fetchInterviewDetails = async () => {
     setIsLoading(true);
@@ -965,6 +1067,7 @@ export default function InterviewRoom() {
   };
 
   const handleCodeChange = (newVal) => {
+    lastCodeEditTimeRef.current = Date.now();
     setCode(newVal || '');
     if (socketRef.current) {
       socketRef.current.emit('editor:change', {
@@ -980,6 +1083,12 @@ export default function InterviewRoom() {
       });
     }
     peerRoomRef.current?.sendCode(newVal || '');
+
+    // Debounced sync to MongoDB / Vercel serverless
+    if (codeSyncTimerRef.current) clearTimeout(codeSyncTimerRef.current);
+    codeSyncTimerRef.current = setTimeout(() => {
+      triggerRoomSync({ codeUpdate: newVal || '' });
+    }, 700);
   };
 
   const handleRunCode = async () => {
@@ -1019,12 +1128,18 @@ export default function InterviewRoom() {
     if (!chatInput.trim()) return;
     const text = chatInput.trim();
     const newMsg = {
-      id: Date.now(),
+      id: 'msg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
       sender: currentUserName,
-      role: isHost ? 'interviewer' : 'candidate',
+      role: currentUserRoleLabel.toLowerCase(),
       text,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
+    setMessages(prev => [...prev, newMsg]);
+    setChatInput('');
+
+    // Instant sync to MongoDB & other devices
+    triggerRoomSync({ newChat: newMsg });
+
     if (socketRef.current) {
       socketRef.current.emit('chat:message', { message: text });
     }
@@ -1036,8 +1151,7 @@ export default function InterviewRoom() {
       });
     }
     peerRoomRef.current?.sendChatMessage(newMsg);
-    setMessages(prev => [...prev, newMsg]);
-    setChatInput('');
+
     setTimeout(() => {
       chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, 100);
