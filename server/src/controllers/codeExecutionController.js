@@ -145,11 +145,15 @@ export async function executeCode(req, res, next) {
 
     const duration = Date.now() - startTime;
 
-    await AnalyticsEvent.create({
-      actorId: req.user._id,
-      eventType: 'code_executed',
-      metadata: { language, durationMs: duration, passedCount, totalCases: testResults.length }
-    });
+    try {
+      if (AnalyticsEvent && req.user?._id) {
+        AnalyticsEvent.create({
+          actorId: req.user._id,
+          eventType: 'code_executed',
+          metadata: { language, durationMs: duration, passedCount, totalCases: testResults.length }
+        }).catch(() => {});
+      }
+    } catch (e) {}
 
     res.json({
       success: true,

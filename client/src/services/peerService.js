@@ -3,6 +3,10 @@ import { Peer } from 'peerjs';
 /**
  * Universal WebRTC Peer-to-Peer Signaling Service for Vercel Deployments
  * Automatically pairs Host & Candidate over the free global PeerServer cloud.
+ * Features:
+ * - Dynamic host election & collision recovery
+ * - Bidirectional audio/video exchange
+ * - Real-time chat & Monaco code synchronisation
  */
 export class PeerRoomService {
   constructor({ meetingCode, user, isHost, localStream, onRemoteStream, onRemotePeer, onCodeChange, onChatMessage, onPeerLeft }) {
@@ -20,15 +24,17 @@ export class PeerRoomService {
     this.activeCall = null;
     this.activeConn = null;
     this.retryTimer = null;
+    this.peerUnavailableCount = 0;
     this.isDestroyed = false;
 
     this.init();
   }
 
   init() {
+    if (this.isDestroyed) return;
+
     const hostPeerId = `ihub-${this.meetingCode}-host`;
     const candidatePeerId = `ihub-${this.meetingCode}-cand-${Math.random().toString(36).slice(2, 7)}`;
-
     const targetId = this.isHost ? hostPeerId : candidatePeerId;
 
     try {
@@ -45,7 +51,8 @@ export class PeerRoomService {
       });
 
       this.peer.on('open', (id) => {
-        console.log('[PeerRoom] Connected to PeerJS cloud with ID:', id);
+        console.log('[PeerRoom] Connected to PeerJS cloud with ID:', id, '| isHost:', this.isHost);
+        this.peerUnavailableCount = 0;
         if (!this.isHost) {
           this.callHost(hostPeerId);
         }
@@ -54,18 +61,8 @@ export class PeerRoomService {
       // Handle incoming video/audio call
       this.peer.on('call', (call) => {
         console.log('[PeerRoom] Incoming media call from peer:', call.peer);
-        this.activeCall = call;
+        this.setupCall(call);
         call.answer(this.localStream || undefined);
-
-        call.on('stream', (remoteStream) => {
-          console.log('[PeerRoom] Received remote media stream');
-          this.onRemoteStream(remoteStream);
-        });
-
-        call.on('close', () => {
-          console.log('[PeerRoom] Media call ended');
-          this.onPeerLeft();
-        });
       });
 
       // Handle incoming data channel connection (chat, code sync)
@@ -76,21 +73,33 @@ export class PeerRoomService {
 
       this.peer.on('error', (err) => {
         console.warn('[PeerRoom] PeerJS notice:', err.type, err.message);
-        // If Host ID was already taken (e.g. Host reloaded or two people opened as host)
+
+        // If Host ID was already taken (e.g. host is already in room or host reloaded)
         if (err.type === 'unavailable-id') {
           if (this.isHost) {
-            console.log('[PeerRoom] Host ID already registered. Reconnecting as secondary peer...');
-            this.peer.destroy();
+            console.log('[PeerRoom] Host spot taken; joining as candidate to connect to existing host...');
+            this.destroyPeerOnly();
             this.isHost = false;
             this.init();
           }
         } else if (err.type === 'peer-unavailable') {
-          // Host hasn't joined yet; retry calling host
           if (!this.isHost && !this.isDestroyed) {
+            this.peerUnavailableCount++;
+            // If candidate tried to call host 2 times (~4 seconds) and no host is found:
+            // Self-heal: Elect this peer to claim the host spot!
+            if (this.peerUnavailableCount >= 2) {
+              console.log('[PeerRoom] No host found after retries. Claiming host role for this room...');
+              this.peerUnavailableCount = 0;
+              this.destroyPeerOnly();
+              this.isHost = true;
+              this.init();
+              return;
+            }
+
             clearTimeout(this.retryTimer);
             this.retryTimer = setTimeout(() => {
               if (!this.isDestroyed) this.callHost(hostPeerId);
-            }, 2500);
+            }, 2000);
           }
         }
       });
@@ -107,30 +116,44 @@ export class PeerRoomService {
     }
   }
 
+  setupCall(call) {
+    this.activeCall = call;
+
+    call.on('stream', (remoteStream) => {
+      console.log('[PeerRoom] Received remote media stream from:', call.peer);
+      this.onRemoteStream(remoteStream);
+    });
+
+    call.on('close', () => {
+      console.log('[PeerRoom] Media call ended');
+      this.activeCall = null;
+      this.onPeerLeft();
+    });
+
+    call.on('error', (err) => {
+      console.warn('[PeerRoom] Media call error:', err);
+    });
+  }
+
   callHost(hostPeerId) {
     if (this.isDestroyed || !this.peer || this.peer.destroyed) return;
 
     try {
       console.log('[PeerRoom] Attempting to connect to host peer:', hostPeerId);
-      // 1. Media call
-      if (this.localStream) {
-        const call = this.peer.call(hostPeerId, this.localStream);
-        if (call) {
-          this.activeCall = call;
-          call.on('stream', (remoteStream) => {
-            console.log('[PeerRoom] Remote host stream received');
-            this.onRemoteStream(remoteStream);
-          });
-          call.on('close', () => {
-            this.onPeerLeft();
-          });
+      // 1. Data connection for immediate presence, chat & code sync
+      if (!this.activeConn || !this.activeConn.open) {
+        const conn = this.peer.connect(hostPeerId, { reliable: true });
+        if (conn) {
+          this.setupDataConnection(conn);
         }
       }
 
-      // 2. Data connection
-      const conn = this.peer.connect(hostPeerId, { reliable: true });
-      if (conn) {
-        this.setupDataConnection(conn);
+      // 2. Media call (if local stream is ready)
+      if (this.localStream && !this.activeCall) {
+        const call = this.peer.call(hostPeerId, this.localStream);
+        if (call) {
+          this.setupCall(call);
+        }
       }
     } catch (err) {
       console.warn('[PeerRoom] Calling host notice:', err.message);
@@ -142,7 +165,6 @@ export class PeerRoomService {
 
     conn.on('open', () => {
       console.log('[PeerRoom] Data connection open with:', conn.peer);
-      // Send greeting handshake with user info
       conn.send({
         type: 'handshake',
         user: this.user
@@ -154,7 +176,6 @@ export class PeerRoomService {
 
       if (data.type === 'handshake') {
         this.onRemotePeer(data.user);
-        // Reply with our info if we didn't initiate
         if (this.isHost) {
           conn.send({
             type: 'handshake_ack',
@@ -190,6 +211,10 @@ export class PeerRoomService {
           } catch (e) {}
         }
       });
+    } else if (!this.isHost && this.peer && !this.peer.destroyed) {
+      // If we are candidate and media just became available, initiate the media call to host now!
+      const hostPeerId = `ihub-${this.meetingCode}-host`;
+      this.callHost(hostPeerId);
     }
   }
 
@@ -209,8 +234,7 @@ export class PeerRoomService {
     }
   }
 
-  destroy() {
-    this.isDestroyed = true;
+  destroyPeerOnly() {
     clearTimeout(this.retryTimer);
     if (this.activeCall) {
       try { this.activeCall.close(); } catch (e) {}
@@ -224,5 +248,10 @@ export class PeerRoomService {
       try { this.peer.destroy(); } catch (e) {}
       this.peer = null;
     }
+  }
+
+  destroy() {
+    this.isDestroyed = true;
+    this.destroyPeerOnly();
   }
 }

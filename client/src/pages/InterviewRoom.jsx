@@ -771,8 +771,8 @@ export default function InterviewRoom() {
               } catch (e) {}
             }
           });
-          peerRoomRef.current?.updateLocalStream(stream);
         }
+        peerRoomRef.current?.updateLocalStream(stream);
         return;
       }
     } catch (err) {
@@ -846,6 +846,10 @@ export default function InterviewRoom() {
       localVideoRef.current.play().catch(() => {});
     }
 
+    if (localStreamRef.current) {
+      peerRoomRef.current?.updateLocalStream(localStreamRef.current);
+    }
+
     if (socketRef.current) {
       socketRef.current.emit('media:state-changed', { screenSharing: false });
     }
@@ -878,6 +882,8 @@ export default function InterviewRoom() {
               await videoSender.replaceTrack(screenTrack);
             }
           }
+
+          peerRoomRef.current?.updateLocalStream(screenStream);
 
           setIsScreenSharing(true);
           toast.success('Screen sharing started');
@@ -1759,6 +1765,15 @@ export default function InterviewRoom() {
                         role: 'candidate'
                       });
                     }
+                    if (peerRoomRef.current) {
+                      peerRoomRef.current.user.name = finalName;
+                      if (peerRoomRef.current.activeConn && peerRoomRef.current.activeConn.open) {
+                        peerRoomRef.current.activeConn.send({
+                          type: 'handshake',
+                          user: peerRoomRef.current.user
+                        });
+                      }
+                    }
                   }
                 }}
               />
@@ -1783,6 +1798,15 @@ export default function InterviewRoom() {
                     name: finalName,
                     role: 'candidate'
                   });
+                }
+                if (peerRoomRef.current) {
+                  peerRoomRef.current.user.name = finalName;
+                  if (peerRoomRef.current.activeConn && peerRoomRef.current.activeConn.open) {
+                    peerRoomRef.current.activeConn.send({
+                      type: 'handshake',
+                      user: peerRoomRef.current.user
+                    });
+                  }
                 }
               }}
               className="w-full py-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-xs font-semibold transition-all shadow-md shadow-violet-600/30 cursor-pointer"

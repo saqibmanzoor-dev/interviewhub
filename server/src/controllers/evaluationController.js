@@ -40,22 +40,26 @@ export async function createEvaluation(req, res, next) {
     }
 
     // Notify candidate if feedback was provided
-    if (candidateFeedback && candidateFeedback.trim()) {
+    if (candidateFeedback && candidateFeedback.trim() && interview && interview.candidateId) {
       await Notification.create({
         recipientId: interview.candidateId,
         type: 'feedback_submitted',
         title: 'Interview Feedback Available',
         message: `Feedback for your interview "${interview.title}" has been submitted.`,
         relatedInterviewId: interview._id
-      });
+      }).catch(() => {});
     }
 
-    await AnalyticsEvent.create({
-      actorId: req.user._id,
-      eventType: 'evaluation_submitted',
-      interviewId: interview._id,
-      metadata: { recommendation, overallScore: ratings?.overallScore }
-    });
+    try {
+      if (AnalyticsEvent && req.user?._id) {
+        AnalyticsEvent.create({
+          actorId: req.user._id,
+          eventType: 'evaluation_submitted',
+          interviewId: interview?._id,
+          metadata: { recommendation, overallScore: ratings?.overallScore }
+        }).catch(() => {});
+      }
+    } catch (e) {}
 
     res.status(201).json({ success: true, message: 'Evaluation submitted successfully.', data: evaluation });
   } catch (err) {
