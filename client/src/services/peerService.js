@@ -2,8 +2,8 @@ import { Peer } from 'peerjs';
 
 /**
  * Universal WebRTC Peer-to-Peer Service for Vercel Deployments
- * Supports any two devices across Wi-Fi and 4G/5G Cellular Networks
- * Uses OpenRelay TURN servers and unique, collision-free Peer IDs.
+ * Supports cross-network connectivity (Home Wi-Fi + 4G/5G Cellular Mobile Data)
+ * Deterministic single-caller pairing (no glare, no infinite reconnection loop)
  */
 export class PeerRoomService {
   constructor({
@@ -29,6 +29,8 @@ export class PeerRoomService {
     this.activeCall = null;
     this.activeConn = null;
     this.targetPeerId = null;
+    this.callInitiated = false;
+    this.connInitiated = false;
     this.isDestroyed = false;
 
     this.init();
@@ -68,6 +70,9 @@ export class PeerRoomService {
       // Handle incoming video/audio call
       this.peer.on('call', (call) => {
         console.log('[PeerRoom] Incoming media call from peer:', call.peer);
+        if (this.activeCall && this.activeCall !== call) {
+          try { this.activeCall.close(); } catch (e) {}
+        }
         this.activeCall = call;
         this.setupCall(call);
         call.answer(this.localStream || undefined);
@@ -76,11 +81,19 @@ export class PeerRoomService {
       // Handle incoming data channel connection
       this.peer.on('connection', (conn) => {
         console.log('[PeerRoom] Incoming data connection from:', conn.peer);
+        if (this.activeConn && this.activeConn !== conn) {
+          try { this.activeConn.close(); } catch (e) {}
+        }
+        this.activeConn = conn;
         this.setupDataConnection(conn);
       });
 
       this.peer.on('error', (err) => {
-        console.warn('[PeerRoom] PeerJS error:', err.type, err.message);
+        console.warn('[PeerRoom] PeerJS notice:', err.type, err.message);
+        if (err.type === 'peer-unavailable') {
+          this.callInitiated = false;
+          this.connInitiated = false;
+        }
       });
 
       this.peer.on('disconnected', () => {
@@ -103,46 +116,76 @@ export class PeerRoomService {
       return;
     }
 
+    // Deterministic single-caller election:
+    // Only the peer with the lexicographically higher Peer ID initiates the call.
+    // This prevents glare (both peers calling each other at the same time and aborting).
+    const isCaller = String(this.myPeerId) > String(targetPeerId);
+
     try {
       // 1. Data connection for real-time P2P sync
-      if (!this.activeConn || !this.activeConn.open) {
-        console.log('[PeerRoom] Connecting data channel to:', targetPeerId);
-        const conn = this.peer.connect(targetPeerId, { reliable: true });
-        if (conn) {
-          this.setupDataConnection(conn);
+      if (!this.activeConn && !this.connInitiated) {
+        if (isCaller) {
+          console.log('[PeerRoom] Initiating data channel to:', targetPeerId);
+          this.connInitiated = true;
+          const conn = this.peer.connect(targetPeerId, { reliable: true });
+          if (conn) {
+            this.activeConn = conn;
+            this.setupDataConnection(conn);
+          }
         }
       }
 
-      // 2. Media call (if local stream is available and not already connected)
-      if (this.localStream && (!this.activeCall || !this.activeCall.open)) {
-        console.log('[PeerRoom] Initiating media call to:', targetPeerId);
-        const call = this.peer.call(targetPeerId, this.localStream);
-        if (call) {
-          this.activeCall = call;
-          this.setupCall(call);
+      // 2. Media call (initiate once local stream is ready and not already calling)
+      if (this.localStream && !this.activeCall && !this.callInitiated) {
+        if (isCaller) {
+          console.log('[PeerRoom] Initiating media call with stream to:', targetPeerId);
+          this.callInitiated = true;
+          const call = this.peer.call(targetPeerId, this.localStream);
+          if (call) {
+            this.activeCall = call;
+            this.setupCall(call);
+          }
         }
       }
     } catch (err) {
       console.warn('[PeerRoom] Call partner notice:', err.message);
+      this.callInitiated = false;
+      this.connInitiated = false;
     }
   }
 
   setupCall(call) {
     this.activeCall = call;
 
+    if (call.peerConnection) {
+      const pc = call.peerConnection;
+      pc.addEventListener('iceconnectionstatechange', () => {
+        console.log('[PeerRoom] ICE state:', pc.iceConnectionState);
+        if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
+          this.callInitiated = false;
+        }
+      });
+      pc.addEventListener('connectionstatechange', () => {
+        console.log('[PeerRoom] Connection state:', pc.connectionState);
+      });
+    }
+
     call.on('stream', (remoteStream) => {
-      console.log('[PeerRoom] Received remote media stream from:', call.peer);
+      console.log('[PeerRoom] Received remote media stream with tracks:', remoteStream.getTracks().map(t => `${t.kind}:${t.enabled}`));
       this.onRemoteStream(remoteStream);
     });
 
     call.on('close', () => {
       console.log('[PeerRoom] Media call ended');
       this.activeCall = null;
+      this.callInitiated = false;
       this.onPeerLeft();
     });
 
     call.on('error', (err) => {
       console.warn('[PeerRoom] Media call error:', err);
+      this.activeCall = null;
+      this.callInitiated = false;
     });
   }
 
@@ -181,11 +224,14 @@ export class PeerRoomService {
 
     conn.on('close', () => {
       this.activeConn = null;
+      this.connInitiated = false;
       this.onPeerLeft();
     });
 
     conn.on('error', (err) => {
       console.warn('[PeerRoom] Data channel error:', err);
+      this.activeConn = null;
+      this.connInitiated = false;
     });
   }
 
@@ -204,7 +250,7 @@ export class PeerRoomService {
           } catch (e) {}
         }
       });
-    } else if (this.targetPeerId) {
+    } else if (this.targetPeerId && !this.activeCall && !this.callInitiated) {
       this.connectToPeer(this.targetPeerId);
     }
   }
